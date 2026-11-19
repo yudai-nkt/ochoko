@@ -1,6 +1,9 @@
+import gleam/http
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
+import gleam/json
 import gleam/list
+import gleam/option.{Some}
 import gleam/time/timestamp
 import gleam/uri
 import ochoko/config.{type Config, Config}
@@ -8,7 +11,10 @@ import ochoko/context.{type Context, Context}
 import ochoko/crypto/rsa
 import ochoko/db
 import ochoko/http_client.{type Send}
+import ochoko/signature
 import sqlight
+import wisp
+import wisp/simulate
 
 pub fn test_config() -> Config {
   Config(
@@ -32,6 +38,17 @@ pub fn fresh_db() -> sqlight.Connection {
 
 @external(erlang, "ochoko_rsa_test_ffi", "cached_key")
 fn cached_key(make: fn() -> rsa.PrivateKey) -> rsa.PrivateKey
+
+@external(erlang, "ochoko_rsa_test_ffi", "cached_key_named")
+fn cached_key_named(
+  name: String,
+  make: fn() -> rsa.PrivateKey,
+) -> rsa.PrivateKey
+
+/// A second RSA key, standing in for remote actors' keys.
+pub fn remote_key() -> rsa.PrivateKey {
+  cached_key_named("remote", fn() { rsa.generate(2048) })
+}
 
 @external(erlang, "ochoko_test_ffi", "temp_path")
 fn temp_path_ffi() -> String
@@ -102,4 +119,58 @@ pub fn recording_send(send: Send) -> #(Send, fn() -> List(Request(String))) {
     send(req)
   }
   #(recorded, fn() { list.reverse(cell_get(cell)) })
+}
+
+/// A POST to `path` on our host, signed with `remote_key` as `key_id` at the
+/// context's clock.
+pub fn signed_post(
+  ctx: Context,
+  remote_key: rsa.PrivateKey,
+  key_id: String,
+  path: String,
+  body: String,
+) -> wisp.Request {
+  let signed =
+    request.new()
+    |> request.set_method(http.Post)
+    |> request.set_host(ctx.config.host)
+    |> request.set_path(path)
+    |> request.set_body(body)
+    |> signature.sign(remote_key, key_id, ctx.now())
+  let req = simulate.request(http.Post, path) |> simulate.string_body(body)
+  list.fold(signed.headers, req, fn(req, h) {
+    request.set_header(req, h.0, h.1)
+  })
+  |> request.set_header("content-type", "application/activity+json")
+}
+
+/// A minimal remote actor document for `uri` listing `key` as `uri#main-key`.
+pub fn remote_actor_json(uri: String, key: rsa.PrivateKey) -> String {
+  json.object([
+    #("id", json.string(uri)),
+    #("type", json.string("Person")),
+    #("preferredUsername", json.string("remote")),
+    #("inbox", json.string(uri <> "/inbox")),
+    #(
+      "endpoints",
+      json.object([
+        #("sharedInbox", json.string("https://" <> host_of(uri) <> "/inbox")),
+      ]),
+    ),
+    #(
+      "publicKey",
+      json.object([
+        #("id", json.string(uri <> "#main-key")),
+        #("owner", json.string(uri)),
+        #("publicKeyPem", json.string(rsa.public_pem(key))),
+      ]),
+    ),
+  ])
+  |> json.to_string
+}
+
+fn host_of(uri: String) -> String {
+  let assert Ok(parsed) = uri.parse(uri)
+  let assert Some(host) = parsed.host
+  host
 }

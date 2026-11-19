@@ -8,6 +8,7 @@ import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/crypto/rsa
 import ochoko/db
+import ochoko/federation/inbox
 import ochoko/federation/local_actor
 import ochoko/store/follows
 import ochoko/store/profile
@@ -65,6 +66,10 @@ pub fn followers(req: Request, ctx: Context) -> Response {
 
 pub fn following(req: Request, ctx: Context) -> Response {
   collection(req, ctx, "/following", follows.following_count)
+}
+
+pub fn inbox(req: Request, ctx: Context) -> Response {
+  inbox.handle(ctx, req)
 }
 
 /// Statuses are not published yet, so the outbox is always empty.

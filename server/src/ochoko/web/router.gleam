@@ -14,6 +14,7 @@ pub fn handle_request(req: Request, ctx: Context) -> Response {
     ["me"] -> federation.actor(req, ctx, wants_html(req))
     ["me", "followers"] -> federation.followers(req, ctx)
     ["me", "following"] -> federation.following(req, ctx)
+    ["me", "inbox"] | ["inbox"] -> federation.inbox(req, ctx)
     ["me", "outbox"] -> federation.outbox(req, ctx)
     _ -> wisp.not_found()
   }
