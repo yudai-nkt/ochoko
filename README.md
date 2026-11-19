@@ -18,6 +18,8 @@ aqua policy allow aqua-policy.yaml   # once, to permit the local registry
 aqua i -l
 ```
 
+Editing `aqua-policy.yaml` invalidates the approval, so re-run `aqua policy allow aqua-policy.yaml` afterwards.
+
 A C compiler (Xcode Command Line Tools on macOS) is required to build NIF
 dependencies such as `sqlight` and `argus`.
 
