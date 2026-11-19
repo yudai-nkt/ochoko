@@ -191,6 +191,12 @@ pub fn post_numeric_media_422_test() {
     == 422
 }
 
+pub fn post_null_media_422_test() {
+  let #(_, ctx, token) = setup()
+  assert post_json(ctx, token, "{\"status\":\"hi\",\"media_ids\":[null]}").status
+    == 422
+}
+
 pub fn post_object_media_422_test() {
   let #(_, ctx, token) = setup()
   assert post_json(

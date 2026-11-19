@@ -15,7 +15,7 @@ fn value(body: String, key: String) -> String {
 }
 
 const body =
-  "{\"b\":true,\"i\":5,\"f\":1.5,\"o\":{\"a\":1},\"n\":null,\"l\":[1,false,\"x\",{\"k\":1}]}"
+  "{\"b\":true,\"i\":5,\"f\":1.5,\"o\":{\"a\":1},\"n\":null,\"l\":[1,false,\"x\",{\"k\":1}],\"z\":[null],\"m\":[1,null,[2]]}"
 
 pub fn json_scalars_are_stringified_test() {
   assert value(body, "b") == "true"
@@ -30,4 +30,9 @@ pub fn json_objects_are_present_test() {
 
 pub fn json_arrays_of_scalars_and_objects_test() {
   assert value(body, "l") == "1\nfalse\nx\n{}"
+}
+
+pub fn json_null_and_nested_array_elements_are_present_test() {
+  assert value(body, "z") == "null"
+  assert value(body, "m") == "1\nnull\nnull"
 }

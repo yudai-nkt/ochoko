@@ -91,9 +91,15 @@ fn scalar() -> decode.Decoder(String) {
   ])
 }
 
+/// An array element: anything at all counts, so that a non-empty array is
+/// always seen as present (`null` and nested arrays become a marker).
+fn element() -> decode.Decoder(String) {
+  decode.one_of(scalar(), [decode.dynamic |> decode.map(fn(_) { "null" })])
+}
+
 fn parse_json(body: String) -> Result(Params, Nil) {
   let value =
-    decode.one_of(decode.list(scalar()) |> decode.map(string.join(_, "\n")), [
+    decode.one_of(decode.list(element()) |> decode.map(string.join(_, "\n")), [
       scalar(),
       decode.success(""),
     ])
