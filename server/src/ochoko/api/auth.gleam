@@ -21,27 +21,27 @@ pub fn require_user(
   req: Request,
   next: fn() -> Response,
 ) -> Response {
-  use auth <- require_any(ctx, req)
+  use auth, _ <- require_any(ctx, req)
   case auth {
     UserToken -> next()
     AppToken -> invalid_token()
   }
 }
 
-/// Require any valid token and tell which kind it is.
+/// Require any valid token; the callback gets its kind and owning app id.
 pub fn require_any(
   ctx: Context,
   req: Request,
-  next: fn(Auth) -> Response,
+  next: fn(Auth, Int) -> Response,
 ) -> Response {
   case authenticate(ctx, req) {
-    Ok(#(auth, _)) -> next(auth)
+    Ok(#(auth, app_id)) -> next(auth, app_id)
     Error(Nil) -> invalid_token()
   }
 }
 
 /// The auth kind and owning app id of the request's bearer token.
-pub fn authenticate(ctx: Context, req: Request) -> Result(#(Auth, Int), Nil) {
+fn authenticate(ctx: Context, req: Request) -> Result(#(Auth, Int), Nil) {
   case bearer_token(req) {
     Error(Nil) -> Error(Nil)
     Ok(token) ->

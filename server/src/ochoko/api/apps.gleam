@@ -68,8 +68,7 @@ pub fn create(req: Request, ctx: Context) -> Response {
 
 pub fn verify_credentials(req: Request, ctx: Context) -> Response {
   use <- wisp.require_method(req, Get)
-  use _ <- auth.require_any(ctx, req)
-  let assert Ok(#(_, app_id)) = auth.authenticate(ctx, req)
+  use _, app_id <- auth.require_any(ctx, req)
   case db.with_connection(ctx.db_path, oauth.get_app(_, app_id)) {
     Ok(Some(app)) ->
       json.object([

@@ -7,6 +7,7 @@ import gleam/erlang/process
 import gleam/http.{Get, Post}
 import gleam/http/request
 import gleam/http/response
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -210,7 +211,12 @@ fn escape(s: String) -> String {
   |> string.replace("'", "&#39;")
 }
 
-fn html_page(status: Int, title: String, body: String) -> Response {
+fn html_page(
+  status: Int,
+  title: String,
+  body: String,
+  form_action: String,
+) -> Response {
   let html =
     "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
     <> "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
@@ -226,7 +232,7 @@ fn html_page(status: Int, title: String, body: String) -> Response {
   |> response.set_header("content-type", "text/html; charset=utf-8")
   |> response.set_header(
     "content-security-policy",
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+    "default-src 'none'; style-src 'unsafe-inline'; form-action " <> form_action,
   )
   |> response.set_header("x-frame-options", "DENY")
   |> response.set_header("cache-control", "no-store")
@@ -239,6 +245,7 @@ fn error_page(message: String) -> Response {
     400,
     "Authorization error",
     "<h1>Authorization error</h1><p>" <> escape(message) <> "</p>",
+    "'self'",
   )
 }
 
@@ -249,6 +256,7 @@ fn oob_page(code: String) -> Response {
     "<h1>Authorization code</h1><p>Copy this code into the application:</p><p><code>"
       <> escape(code)
       <> "</code></p>",
+    "'self'",
   )
 }
 
@@ -286,7 +294,9 @@ fn login_page(authz: Authz, error: Option(String), status: Int) -> Response {
     "Sign in",
     "<h1>Sign in</h1><p><strong>"
       <> escape(authz.app.name)
-      <> "</strong> wants access to your account"
+      <> "</strong> (redirects to "
+      <> escape(redirect_label(authz.redirect_uri))
+      <> ") wants access to your account"
       <> " (scope: "
       <> escape(authz.scope)
       <> ").</p>"
@@ -296,7 +306,46 @@ fn login_page(authz: Authz, error: Option(String), status: Int) -> Response {
       <> "<label>Password<input type=\"password\" name=\"password\""
       <> " autocomplete=\"current-password\" autofocus required></label>"
       <> "<button type=\"submit\">Authorize</button></form>",
+    "'self' " <> redirect_source(authz.redirect_uri),
   )
+}
+
+/// CSP source for the redirect target. Chromium applies `form-action` to the
+/// redirect that follows a form submission, so the 302 back to the client
+/// must be allowed. Out-of-band has no target.
+fn redirect_source(redirect_uri: String) -> String {
+  case redirect_uri == oob, uri.parse(redirect_uri) {
+    True, _ | _, Error(Nil) -> ""
+    False, Ok(parsed) ->
+      case parsed.scheme, parsed.host {
+        Some(scheme), Some(host) -> {
+          let scheme = string.lowercase(scheme)
+          case scheme {
+            "http" | "https" ->
+              scheme
+              <> "://"
+              <> host
+              <> case parsed.port {
+                Some(port) -> ":" <> int.to_string(port)
+                None -> ""
+              }
+            _ -> scheme <> ":"
+          }
+        }
+        Some(scheme), None -> string.lowercase(scheme) <> ":"
+        None, _ -> ""
+      }
+  }
+}
+
+/// Where the code will go, shown to the user: the host, else the scheme.
+fn redirect_label(redirect_uri: String) -> String {
+  case redirect_uri == oob, uri.parse(redirect_uri) {
+    True, _ -> "out-of-band"
+    _, Ok(uri.Uri(host: Some(host), ..)) -> host
+    _, Ok(uri.Uri(scheme: Some(scheme), ..)) -> scheme <> ":"
+    _, _ -> "unknown"
+  }
 }
 
 // ---------------------------------------------------------------- token

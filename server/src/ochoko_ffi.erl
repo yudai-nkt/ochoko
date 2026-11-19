@@ -12,6 +12,10 @@ read_password() ->
             io:nl(),
             Pw;
         false ->
+            io:get_line("");
+        unknown ->
+            io:format(standard_error,
+                      "warning: cannot disable echo; input will be visible~n", []),
             io:get_line("")
     end,
     case Raw of
@@ -26,5 +30,5 @@ is_tty() ->
     try prim_tty:isatty(stdin) of
         true -> true;
         _ -> false
-    catch _:_ -> false
+    catch _:_ -> unknown
     end.

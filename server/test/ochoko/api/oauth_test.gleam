@@ -41,13 +41,22 @@ fn json_field(res: wisp.Response, key: String) -> String {
 
 /// Registers an app through the API; returns #(client_id, client_secret).
 fn register(ctx: Context, scopes: String) -> #(String, String) {
+  register_as(ctx, "Elk", redirect, scopes)
+}
+
+fn register_as(
+  ctx: Context,
+  name: String,
+  redirect_uri: String,
+  scopes: String,
+) -> #(String, String) {
   let res =
     router.handle_request(
       simulate.request(http.Post, "/api/v1/apps")
         |> simulate.json_body(
           json.object([
-            #("client_name", json.string("Elk")),
-            #("redirect_uris", json.string(redirect)),
+            #("client_name", json.string(name)),
+            #("redirect_uris", json.string(redirect_uri)),
             #("scopes", json.string(scopes)),
             #("website", json.string("https://elk.example")),
           ]),
@@ -264,8 +273,110 @@ pub fn authorize_renders_form_test() {
   assert string.contains(body, "&quot;&gt;&lt;script&gt;")
   assert !string.contains(body, "<script>")
   assert response.get_header(res, "x-frame-options") == Ok("DENY")
+  // The post-login 302 to the client must not be blocked by form-action.
   assert response.get_header(res, "content-security-policy")
-    == Ok("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
+    == Ok(
+      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://elk.example",
+    )
+  assert string.contains(body, "(redirects to elk.example)")
+}
+
+pub fn csp_form_action_custom_scheme_and_port_test() {
+  let #(_, ctx) = setup()
+  let #(id, _) = register_as(ctx, "N", "app.example://cb", "read")
+  let csp = csp_of(ctx, id, "app.example://cb")
+  assert string.ends_with(csp, "form-action 'self' app.example:")
+  let #(id, _) = register_as(ctx, "P", "http://127.0.0.1:8080/cb", "read")
+  let csp = csp_of(ctx, id, "http://127.0.0.1:8080/cb")
+  assert string.ends_with(csp, "form-action 'self' http://127.0.0.1:8080")
+}
+
+fn csp_of(ctx: Context, id: String, redirect_uri: String) -> String {
+  let res =
+    router.handle_request(
+      simulate.request(
+        http.Get,
+        "/oauth/authorize?response_type=code&scope=read&client_id="
+          <> id
+          <> "&redirect_uri="
+          <> uri.percent_encode(redirect_uri),
+      ),
+      ctx,
+    )
+  assert res.status == 200
+  let assert Ok(csp) = response.get_header(res, "content-security-policy")
+  csp
+}
+
+pub fn tampered_redirect_on_post_issues_no_code_test() {
+  let #(path, ctx) = setup()
+  let #(id, _) = register(ctx, "read write")
+  let res =
+    authorize_form(ctx, [
+      #("redirect_uri", "https://evil.example/cb"),
+      ..list.filter(login_fields(id, support.test_password), fn(f) {
+        f.0 != "redirect_uri"
+      })
+    ])
+  assert res.status == 400
+  assert response.get_header(res, "location") == Error(Nil)
+  assert count_rows(path, "oauth_codes") == 0
+}
+
+fn count_rows(path: String, table: String) -> Int {
+  let assert Ok([n]) =
+    db.with_connection(path, fn(conn) {
+      sqlight.query(
+        "SELECT COUNT(*) FROM " <> table,
+        on: conn,
+        with: [],
+        expecting: decode.at([0], decode.int),
+      )
+    })
+  n
+}
+
+pub fn code_of_app_a_rejected_for_app_b_test() {
+  let #(_, ctx) = setup()
+  let #(id_a, _) = register(ctx, "read write")
+  let #(id_b, secret_b) = register(ctx, "read write")
+  let code = get_code(ctx, login_fields(id_a, support.test_password))
+  let res = token_request(ctx, exchange_fields(id_b, secret_b, code))
+  assert res.status == 400
+  assert json_field(res, "error") == "invalid_grant"
+}
+
+pub fn redirect_with_existing_query_test() {
+  let #(_, ctx) = setup()
+  let target = "https://elk.example/cb?x=1"
+  let #(id, _) = register_as(ctx, "Elk", target, "read write")
+  let res =
+    authorize_form(ctx, [
+      #("redirect_uri", target),
+      ..list.filter(login_fields(id, support.test_password), fn(f) {
+        f.0 != "redirect_uri"
+      })
+    ])
+  assert res.status == 302
+  let assert Ok(loc) = response.get_header(res, "location")
+  assert string.starts_with(loc, target <> "&code=")
+  assert string.ends_with(loc, "&state=xyz")
+}
+
+pub fn wrong_password_rerender_escapes_test() {
+  let #(_, ctx) = setup()
+  let #(id, _) = register_as(ctx, "<b>\"Evil\"</b>", redirect, "read write")
+  let res =
+    authorize_form(ctx, [
+      #("state", "\"><script>alert(1)</script>"),
+      ..list.filter(login_fields(id, "wrong"), fn(f) { f.0 != "state" })
+    ])
+  assert res.status == 401
+  let body = body_string(res)
+  assert !string.contains(body, "<b>")
+  assert !string.contains(body, "<script>")
+  assert string.contains(body, "&lt;b&gt;&quot;Evil&quot;&lt;/b&gt;")
+  assert string.contains(body, "&quot;&gt;&lt;script&gt;")
 }
 
 pub fn wrong_password_401_test() {
@@ -508,12 +619,7 @@ pub fn tokens_stored_hashed_test() {
   let #(path, ctx) = setup()
   let #(id, secret) = register(ctx, "read write")
   let code = get_code(ctx, login_fields(id, support.test_password))
-  let token =
-    json_field(
-      token_request(ctx, exchange_fields(id, secret, code)),
-      "access_token",
-    )
-  let stored = fn(sql) {
+  let column = fn(sql) {
     db.with_connection(path, fn(conn) {
       let assert Ok(rows) =
         sqlight.query(
@@ -525,9 +631,33 @@ pub fn tokens_stored_hashed_test() {
       rows
     })
   }
-  let hashes = stored("SELECT token_hash FROM oauth_tokens")
-  assert hashes == [oauth.hash_secret(token)]
-  assert !list.contains(hashes, token)
-  // The code was consumed, so nothing remains in the code table.
-  assert stored("SELECT code_hash FROM oauth_codes") == []
+  // Before the exchange the code is stored as its hash only.
+  assert column("SELECT code_hash FROM oauth_codes")
+    == [oauth.hash_secret(code)]
+  let token =
+    json_field(
+      token_request(ctx, exchange_fields(id, secret, code)),
+      "access_token",
+    )
+  assert column("SELECT token_hash FROM oauth_tokens")
+    == [oauth.hash_secret(token)]
+  assert oauth.hash_secret(token) != token
+  assert oauth.hash_secret(code) != code
+  // Raw strings appear nowhere in the tables.
+  let like = fn(table, col, raw) {
+    column(
+      "SELECT "
+      <> col
+      <> " FROM "
+      <> table
+      <> " WHERE "
+      <> col
+      <> " = '"
+      <> raw
+      <> "'",
+    )
+  }
+  assert like("oauth_tokens", "token_hash", token) == []
+  assert like("oauth_codes", "code_hash", code) == []
+  assert column("SELECT code_hash FROM oauth_codes") == []
 }
