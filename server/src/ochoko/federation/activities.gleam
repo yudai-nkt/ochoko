@@ -61,3 +61,13 @@ fn embedded_follow(c: Config, follow_id: String, follower_uri: String) {
     #("object", json.string(config.actor_id(c))),
   ])
 }
+
+/// The `Follow` we sent as `follow_id` to `object`, for embedding in `Undo`.
+pub fn sent_follow(c: Config, follow_id: String, object: String) -> json.Json {
+  json.object([
+    #("id", json.string(follow_id)),
+    #("type", json.string("Follow")),
+    #("actor", json.string(config.actor_id(c))),
+    #("object", json.string(object)),
+  ])
+}

@@ -2,14 +2,18 @@ import gleam/http.{Options}
 import gleam/http/request
 import gleam/http/response
 import gleam/string
+import ochoko/api/accounts
 import ochoko/api/apps
+import ochoko/api/instance
 import ochoko/api/oauth
+import ochoko/api/search
 import ochoko/context.{type Context}
 import ochoko/web/federation
 import wisp.{type Request, type Response}
 
 pub fn handle_request(req: Request, ctx: Context) -> Response {
   use <- cors(req)
+  use <- serve_static(req)
   case wisp.path_segments(req) {
     ["health"] -> wisp.ok() |> wisp.string_body("ok")
     [".well-known", "webfinger"] -> federation.webfinger(req, ctx)
@@ -21,10 +25,37 @@ pub fn handle_request(req: Request, ctx: Context) -> Response {
     ["api", "v1", "apps"] -> apps.create(req, ctx)
     ["api", "v1", "apps", "verify_credentials"] ->
       apps.verify_credentials(req, ctx)
+    ["api", "v1", "instance"] -> instance.v1(req, ctx)
+    ["api", "v2", "instance"] -> instance.v2(req, ctx)
+    ["api", "v2", "search"] -> search.search(req, ctx)
+    ["api", "v1", "accounts", "verify_credentials"] ->
+      accounts.verify_credentials(req, ctx)
+    ["api", "v1", "accounts", "lookup"] -> accounts.lookup(req, ctx)
+    ["api", "v1", "accounts", "relationships"] ->
+      accounts.relationships(req, ctx)
+    ["api", "v1", "accounts", id] -> accounts.show(req, ctx, id)
+    ["api", "v1", "accounts", id, "statuses"] -> accounts.statuses(req, ctx, id)
+    ["api", "v1", "accounts", id, "followers"] ->
+      accounts.followers(req, ctx, id)
+    ["api", "v1", "accounts", id, "following"] ->
+      accounts.following(req, ctx, id)
+    ["api", "v1", "accounts", id, "follow"] -> accounts.follow(req, ctx, id)
+    ["api", "v1", "accounts", id, "unfollow"] -> accounts.unfollow(req, ctx, id)
+    ["api", "v1", "accounts", id, "remove_from_followers"] ->
+      accounts.remove_from_followers(req, ctx, id)
     ["oauth", "authorize"] -> oauth.authorize(req, ctx)
     ["oauth", "token"] -> oauth.token(req, ctx)
     ["oauth", "revoke"] -> oauth.revoke(req, ctx)
     _ -> wisp.not_found()
+  }
+}
+
+/// Serve `priv/static` under `/static`.
+fn serve_static(req: Request, next: fn() -> Response) -> Response {
+  case wisp.priv_directory("ochoko") {
+    Ok(priv) ->
+      wisp.serve_static(req, under: "/static", from: priv <> "/static", next:)
+    Error(Nil) -> next()
   }
 }
 

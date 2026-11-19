@@ -5,6 +5,7 @@ import gleam/http/response.{type Response}
 import gleam/json
 import gleam/list
 import gleam/option.{Some}
+import gleam/result
 import gleam/time/timestamp
 import gleam/uri
 import ochoko/config.{type Config, Config}
@@ -13,6 +14,7 @@ import ochoko/crypto/rsa
 import ochoko/db
 import ochoko/http_client.{type Send}
 import ochoko/signature
+import ochoko/store/oauth
 import sqlight
 import wisp
 import wisp/simulate
@@ -202,4 +204,27 @@ pub fn login_context(db_path: String) -> Context {
     ..ctx,
     config: Config(..ctx.config, password_hash: test_password_hash()),
   )
+}
+
+/// Inserts an app and a user token directly; returns the bearer token.
+pub fn user_token(ctx: Context) -> String {
+  let assert Ok(token) =
+    db.with_connection(ctx.db_path, fn(conn) {
+      use app <- result.try(oauth.create_app(
+        conn,
+        "Elk",
+        option.None,
+        ["https://elk.example/cb"],
+        "read write follow",
+        ctx.now(),
+      ))
+      oauth.create_token(
+        conn,
+        app.id,
+        oauth.UserKind,
+        "read write follow",
+        ctx.now(),
+      )
+    })
+  token
 }

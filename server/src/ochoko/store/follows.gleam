@@ -165,3 +165,38 @@ fn actor_ids(
     expecting: decode.at([0], decode.int),
   )
 }
+
+/// The id of the Follow activity of the remote follower `actor_id`.
+pub fn follower_follow_uri(
+  conn: sqlight.Connection,
+  actor_id: Int,
+) -> Result(Option(String), sqlight.Error) {
+  follow_uri(conn, "followers", actor_id)
+}
+
+/// The id of our Follow activity to the remote actor `actor_id`.
+pub fn following_follow_uri(
+  conn: sqlight.Connection,
+  actor_id: Int,
+) -> Result(Option(String), sqlight.Error) {
+  follow_uri(conn, "following", actor_id)
+}
+
+fn follow_uri(
+  conn: sqlight.Connection,
+  table: String,
+  actor_id: Int,
+) -> Result(Option(String), sqlight.Error) {
+  sqlight.query(
+    "SELECT follow_uri FROM " <> table <> " WHERE actor_id = ?",
+    on: conn,
+    with: [sqlight.int(actor_id)],
+    expecting: decode.at([0], decode.string),
+  )
+  |> result.map(fn(rows) {
+    case rows {
+      [uri, ..] -> Some(uri)
+      [] -> None
+    }
+  })
+}
