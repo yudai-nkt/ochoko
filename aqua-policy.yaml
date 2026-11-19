@@ -1,0 +1,11 @@
+---
+# https://aquaproj.github.io/docs/reference/security/policy
+registries:
+  - type: standard
+    ref: semver(">= 4.579.0")
+  - name: local
+    type: local
+    path: aqua/registry.yaml
+packages:
+  - registry: standard
+  - registry: local

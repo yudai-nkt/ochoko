@@ -1,0 +1,15 @@
+---
+# aqua - Declarative CLI Version Manager
+# https://aquaproj.github.io/
+registries:
+  - type: standard
+    ref: v4.589.0
+  - name: local
+    type: local
+    path: aqua/registry.yaml
+packages:
+  - name: gleam-lang/gleam@v1.19.2
+  - name: erlang/rebar3@3.28.0
+    registry: local
+  - name: erlef/otp_builds@OTP-28.5.0.8
+    registry: local
