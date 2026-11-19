@@ -21,6 +21,7 @@ server (the "remote account") for the steps that need one.
 9. Not yet run. Search `@yudai@ynkt.me` from the remote account's Mastodon search and confirm it resolves.
 10. Not yet run. Record every endpoint Elk calls that returns 404 (see below); add it to the stubs (`server/src/ochoko/api/stubs.gleam`) or note why not.
 11. Not yet run. **Confirm whether Elk is usable without streaming.** If it is not, stop: streaming must be pulled forward into a new plan.
+12. Not yet run. Confirm Elk displays the own handle as `@yudai@ynkt.me` (not `@yudai@ochoko.ynkt.me`) on the profile and in the account switcher; `/api/v1/instance` `uri` and `/api/v2/instance` `domain` are `ynkt.me`.
 
 ## Results
 
@@ -37,6 +38,7 @@ server (the "remote account") for the steps that need one.
 | 9 | `@yudai@ynkt.me` resolves from Mastodon search | not yet run | | |
 | 10 | 404 endpoints recorded | not yet run | | |
 | 11 | Elk usable without streaming | not yet run | | |
+| 12 | Elk shows the handle `@yudai@ynkt.me` | not yet run | | |
 
 ### 404 endpoints
 

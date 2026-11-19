@@ -1,4 +1,6 @@
-//// `GET /api/v1/instance` and `GET /api/v2/instance`.
+//// `GET /api/v1/instance` and `GET /api/v2/instance`. `uri` (v1) and
+//// `domain` (v2) are the account domain, like Mastodon's LOCAL_DOMAIN, so
+//// clients display handles as `user@account_domain`; URLs stay on `host`.
 
 import gleam/http.{Get}
 import gleam/json
@@ -49,7 +51,7 @@ pub fn v1(req: Request, ctx: Context) -> Response {
     let status_count =
       statuses.count_by_actor(conn, option.None) |> result.unwrap(0)
     mastodon.InstanceV1(
-      uri: ctx.config.host,
+      uri: ctx.config.account_domain,
       title: "ochoko",
       description: "",
       short_description: "",
@@ -75,7 +77,7 @@ pub fn v2(req: Request, ctx: Context) -> Response {
   use <- wisp.require_method(req, Get)
   db.with_connection(ctx.db_path, fn(conn) {
     mastodon.InstanceV2(
-      domain: ctx.config.host,
+      domain: ctx.config.account_domain,
       title: "ochoko",
       version:,
       source_url: "https://github.com/yudai-nkt/ochoko",

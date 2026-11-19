@@ -128,7 +128,9 @@ pub fn instance_v2_test() {
     router.handle_request(simulate.request(http.Get, "/api/v2/instance"), ctx)
   assert res.status == 200
   assert str(res, ["version"]) == "4.3.0 (compatible; ochoko 0.1.0)"
-  assert str(res, ["domain"]) == "ochoko.ynkt.me"
+  // The account domain (Mastodon's LOCAL_DOMAIN), so clients show
+  // @yudai@ynkt.me.
+  assert str(res, ["domain"]) == "ynkt.me"
   assert str(res, ["title"]) == "ochoko"
   assert str(res, ["contact", "account", "acct"]) == "yudai"
   assert flag(res, ["registrations", "enabled"]) == False
@@ -145,7 +147,7 @@ pub fn instance_v1_test() {
   let res =
     router.handle_request(simulate.request(http.Get, "/api/v1/instance"), ctx)
   assert res.status == 200
-  assert str(res, ["uri"]) == "ochoko.ynkt.me"
+  assert str(res, ["uri"]) == "ynkt.me"
   assert str(res, ["version"]) == "4.3.0 (compatible; ochoko 0.1.0)"
   let assert Ok(n) =
     json.parse(
