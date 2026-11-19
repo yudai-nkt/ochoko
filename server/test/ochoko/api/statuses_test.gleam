@@ -185,6 +185,22 @@ pub fn post_media_422_test() {
   assert res.status == 422
 }
 
+pub fn post_numeric_media_422_test() {
+  let #(_, ctx, token) = setup()
+  assert post_json(ctx, token, "{\"status\":\"hi\",\"media_ids\":[1]}").status
+    == 422
+}
+
+pub fn post_object_media_422_test() {
+  let #(_, ctx, token) = setup()
+  assert post_json(
+      ctx,
+      token,
+      "{\"status\":\"hi\",\"media_ids\":[{\"id\":\"1\"}]}",
+    ).status
+    == 422
+}
+
 pub fn post_poll_422_test() {
   let #(_, ctx, token) = setup()
   let res =
@@ -388,6 +404,11 @@ pub fn get_deleted_note_410_test() {
   let res =
     router.handle_request(simulate.request(http.Get, "/statuses/" <> id), ctx)
   assert res.status == 410
+  let body = simulate.read_body(res)
+  assert body_str(body, ["type"]) == "Tombstone"
+  assert body_str(body, ["id"]) == "https://ochoko.ynkt.me/statuses/" <> id
+  assert list.key_find(res.headers, "content-type")
+    == Ok("application/activity+json; charset=utf-8")
 }
 
 pub fn get_remote_or_unknown_note_404_test() {

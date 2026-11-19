@@ -145,6 +145,15 @@ pub fn create(c: Config, s: StatusRow) -> json.Json {
   ])
 }
 
+/// The `Tombstone` standing in for a deleted status.
+pub fn tombstone_json(s: StatusRow) -> json.Json {
+  json.object([
+    #("@context", json.string(context_url)),
+    #("id", json.string(s.uri)),
+    #("type", json.string("Tombstone")),
+  ])
+}
+
 /// The `Delete` activity retracting our status `s`.
 pub fn delete(c: Config, s: StatusRow) -> json.Json {
   json.object([

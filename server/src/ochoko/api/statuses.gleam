@@ -235,16 +235,24 @@ pub fn delete(req: Request, ctx: Context, id: String) -> Response {
         let now = ctx.now()
         let removed =
           db.transaction(conn, fn() {
-            use _ <- result.try(statuses.mark_deleted(conn, row.id, now))
-            deliveries.enqueue(
-              conn,
-              deliveries.inboxes_for_followers(conn),
-              json.to_string(activities.delete(ctx.config, row)),
-              now,
-            )
+            use live <- result.try(find_live(conn, id))
+            case live {
+              None -> Ok(False)
+              Some(_) -> {
+                use _ <- result.try(statuses.mark_deleted(conn, row.id, now))
+                use _ <- result.map(deliveries.enqueue(
+                  conn,
+                  deliveries.inboxes_for_followers(conn),
+                  json.to_string(activities.delete(ctx.config, row)),
+                  now,
+                ))
+                True
+              }
+            }
           })
         case removed {
-          Ok(Nil) -> present_status(ctx, conn, row, row.text)
+          Ok(True) -> present_status(ctx, conn, row, row.text)
+          Ok(False) -> not_found()
           Error(e) -> server_error(e)
         }
       }

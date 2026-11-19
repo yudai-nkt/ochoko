@@ -93,7 +93,10 @@ pub fn status(req: Request, ctx: Context, id: String) -> Response {
     Error(_) -> wisp.internal_server_error()
     Ok(Some(row)) if row.actor_id == None ->
       case row.deleted_at {
-        Some(_) -> wisp.response(410)
+        Some(_) ->
+          wisp.response(410)
+          |> response.set_header("content-type", activity_json)
+          |> wisp.string_body(json.to_string(activities.tombstone_json(row)))
         None -> activity_response(activities.note_json(ctx.config, row))
       }
     Ok(_) -> wisp.not_found()
