@@ -6,7 +6,7 @@
 
 **Architecture:** One Gleam OTP application (Erlang target) serving HTTP with mist + wisp, persisting to SQLite via sqlight, and draining a SQLite-backed delivery queue with OTP workers. Mastodon API entity types live in a separate `shared` package (Erlang + JavaScript targets) so a future Lustre client can import them. Inbound ActivityPub JSON goes through hand-written lenient decoders into normalised internal types.
 
-**Tech Stack:** Gleam 1.19.2, Erlang/OTP 28, rebar3, gleam_stdlib, gleam_erlang, gleam_otp, gleam_http, gleam_httpc, gleam_json, gleam_crypto, gleam_time, wisp 2, mist 6, sqlight, tom, simplifile, argus, gleeunit; Erlang `public_key`, `inets` (`httpd_util`) and `mochiweb` (`mochiweb_html`) via FFI.
+**Tech Stack:** aqua (toolchain), Gleam 1.19.2, Erlang/OTP 28.5.0.8, rebar3 3.28.0, gleam_stdlib, gleam_erlang, gleam_otp, gleam_http, gleam_httpc, gleam_json, gleam_crypto, gleam_time, wisp 2, mist 6, sqlight, tom, simplifile, argus, gleeunit; Erlang `public_key`, `inets` (`httpd_util`) and `mochiweb` (`mochiweb_html`) via FFI.
 
 **Spec:** `docs/superpowers/specs/2026-11-19-ochoko-design.md`
 
@@ -39,7 +39,8 @@
 ## File Structure
 
 ```
-mise.toml                          toolchain pins
+aqua.yaml                          toolchain pins (standard + local registry)
+aqua/registry.yaml                 local aqua registry: rebar3, Erlang/OTP (macOS)
 README.md                          dev setup + commands
 docs/deployment.md                 reverse proxy, ynkt.me WebFinger, backups, Elk login
 shared/                            gleam package `ochoko_shared` (erlang + javascript)
@@ -84,12 +85,19 @@ Shared test helpers (written in Task 3, extended later): `test/support.gleam` wi
 ### Task 1: Toolchain, monorepo scaffold, health endpoint
 
 **Files:**
-- Create: `mise.toml`, `.gitignore`, `README.md`, `shared/gleam.toml`, `shared/src/ochoko_shared.gleam`, `shared/test/ochoko_shared_test.gleam`, `server/gleam.toml`, `server/src/ochoko.gleam`, `server/src/ochoko/web/router.gleam`, `server/test/ochoko_test.gleam`, `server/test/ochoko/web/router_test.gleam`
+- Create: `aqua.yaml`, `aqua/registry.yaml`, `.gitignore`, `README.md`, `shared/gleam.toml`, `shared/src/ochoko_shared.gleam`, `shared/test/ochoko_shared_test.gleam`, `server/gleam.toml`, `server/src/ochoko.gleam`, `server/src/ochoko/web/router.gleam`, `server/test/ochoko_test.gleam`, `server/test/ochoko/web/router_test.gleam`
 
 **Interfaces:**
 - Produces: `router.handle_request(req: wisp.Request, ctx: Context) -> wisp.Response` (Context is a placeholder `Nil`-free record until Task 2; use a temporary `pub type Context { Context }` in `ochoko/context.gleam`).
 
-- [ ] **Step 1:** `mise.toml` pins `gleam = "1.19.2"`, `erlang = "28"`, `rebar3 = "latest"`; run `mise install`. Expected: `gleam --version` prints `gleam 1.19.2`.
+- [ ] **Step 1: Toolchain via aqua.** The owner wants every tool installed with aqua where possible; ask before introducing any other installer.
+  - `aqua.yaml`: registries `standard` (pin `ref: v4.589.0`) and a `local` registry at `aqua/registry.yaml`; packages `gleam-lang/gleam@v1.19.2` (standard), `erlang/rebar3@3.28.0` (local), `erlef/otp_builds@OTP-28.5.0.8` (local).
+  - `aqua/registry.yaml`, written in aqua-registry style so it can later be proposed upstream:
+    - `erlang/rebar3`: `type: github_release`, asset `rebar3`, `format: raw`, command `rebar3`.
+    - `erlef/otp_builds`: `type: github_release`, asset `otp-{{.Arch}}-apple-darwin.tar.gz` with `replacements: {arm64: aarch64, amd64: x86_64}`, `format: tar.gz`, `supported_envs: [darwin]`, `files` exposing `erl`, `erlc`, `escript` (and `ct_run`, `dialyzer`, `typer` if trivial) from `bin/`. The tarball's `bin/erl` resolves its root via `dyn_erl --realpath`, so it works from aqua's package directory.
+  - Run `aqua policy allow` if aqua requires it for the local registry, then `aqua i -l`.
+  - Expected: `gleam --version` → `gleam 1.19.2`; `erl -noshell -eval 'io:format("~s~n",[erlang:system_info(otp_release)]),halt().'` → `28`; `rebar3 version` → starts with `rebar 3.28.0`.
+  - README documents `aqua i -l` as the setup step and notes a C compiler (Xcode CLT) is required for NIF deps.
 - [ ] **Step 2:** `gleam new shared --name ochoko_shared` and `gleam new server --name ochoko`. In `shared/gleam.toml` leave `target` unset (both targets). In `server/gleam.toml` set `target = "erlang"` and add `ochoko_shared = { path = "../shared" }` plus the Tech Stack deps (`gleam add` each in `server/`).
 - [ ] **Step 3: Write the failing test** `router_test.health_test`:
 
