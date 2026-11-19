@@ -11,7 +11,7 @@ JavaScript.
 
 ## Setup
 
-Tools (Gleam, Erlang/OTP, rebar3) are managed with [aqua](https://aquaproj.github.io/):
+Tools (Gleam, Erlang/OTP, rebar3, Node.js for the JavaScript-target tests) are managed with [aqua](https://aquaproj.github.io/):
 
 ```sh
 aqua policy allow aqua-policy.yaml   # once, to permit the local registry
@@ -28,4 +28,4 @@ cd server && gleam test
 cd shared && gleam test && gleam test --target javascript
 ```
 
-The JavaScript test run needs a JavaScript runtime (Node.js, Deno or Bun).
+The JavaScript test run uses Node.js, provided by aqua.

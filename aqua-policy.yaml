@@ -1,5 +1,12 @@
 ---
 # https://aquaproj.github.io/docs/reference/security/policy
+#
+# Every clone must run `aqua policy allow aqua-policy.yaml` once; aqua denies
+# packages from the local registry (aqua/registry.yaml) until this is approved.
+#
+# The registry `ref` here is an expression, not a tag: a plain `v4.589.0` fails
+# to parse. `semver(">= 4.579.0")` accepts the pinned registry in aqua.yaml and
+# the one in the owner's global aqua config.
 registries:
   - type: standard
     ref: semver(">= 4.579.0")

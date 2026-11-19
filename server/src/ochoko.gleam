@@ -1,5 +1,5 @@
 import gleam/io
 
 pub fn main() -> Nil {
-  io.println("Hello from ochoko!")
+  io.println("usage: ochoko serve --config PATH")
 }
