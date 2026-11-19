@@ -15,6 +15,7 @@ import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/federation/ap_decode
 import ochoko/federation/remote_actor_types as types
+import ochoko/html
 import ochoko/http_client
 import ochoko/store/remote_actors
 import sqlight
@@ -141,9 +142,8 @@ fn actor_decoder(wanted_key: Option(String)) -> Decoder(RemoteActor) {
 }
 
 /// The single place where remote profile HTML is cleaned.
-/// TODO(task 10): pass through `html.sanitize` once it exists.
-fn sanitize_summary(html: String) -> String {
-  html
+fn sanitize_summary(raw: String) -> String {
+  html.sanitize(raw)
 }
 
 fn public_key_decoder(wanted: Option(String)) -> Decoder(#(String, String)) {

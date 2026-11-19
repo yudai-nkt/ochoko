@@ -30,6 +30,7 @@ simplifile = ">= 2.7.0 and < 3.0.0"
 argus = ">= 2.0.0 and < 3.0.0"
 ochoko_shared = { path = "../shared" }
 argv = ">= 1.1.0 and < 2.0.0"
+mochiweb = ">= 3.6.1 and < 4.0.0"
 
 [erlang]
 extra_applications = ["inets", "public_key"]
