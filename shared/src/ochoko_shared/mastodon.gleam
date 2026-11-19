@@ -69,10 +69,6 @@ fn time_json(ts: Timestamp) -> Json {
   json.string(format_timestamp(ts))
 }
 
-fn nullable(o: Option(a), f: fn(a) -> Json) -> Json {
-  json.nullable(o, f)
-}
-
 // ---------------------------------------------------------------- shared small entities
 
 pub type CustomEmoji {
@@ -129,7 +125,36 @@ pub fn field_to_json(f: Field) -> Json {
   json.object([
     #("name", json.string(f.name)),
     #("value", json.string(f.value)),
-    #("verified_at", nullable(f.verified_at, time_json)),
+    #("verified_at", json.nullable(f.verified_at, time_json)),
+  ])
+}
+
+/// A server role (`Role` in masto.js). Needed by `CredentialAccount`.
+pub type Role {
+  Role(
+    id: Int,
+    name: String,
+    color: String,
+    position: Int,
+    permissions: Int,
+    highlighted: Bool,
+    created_at: Timestamp,
+    updated_at: Timestamp,
+    collection_limit: Int,
+  )
+}
+
+pub fn role_to_json(r: Role) -> Json {
+  json.object([
+    #("id", json.int(r.id)),
+    #("name", json.string(r.name)),
+    #("color", json.string(r.color)),
+    #("position", json.int(r.position)),
+    #("permissions", json.int(r.permissions)),
+    #("highlighted", json.bool(r.highlighted)),
+    #("created_at", time_json(r.created_at)),
+    #("updated_at", time_json(r.updated_at)),
+    #("collection_limit", json.int(r.collection_limit)),
   ])
 }
 
@@ -141,6 +166,7 @@ pub type AccountSource {
     privacy: Visibility,
     sensitive: Bool,
     language: Option(String),
+    role: Role,
   )
 }
 
@@ -150,10 +176,11 @@ fn account_source_to_json(s: AccountSource) -> Json {
     #("fields", json.array(s.fields, field_to_json)),
     #("privacy", json.string(visibility_to_string(s.privacy))),
     #("sensitive", json.bool(s.sensitive)),
-    #("language", nullable(s.language, json.string)),
+    #("language", json.nullable(s.language, json.string)),
     #("attribution_domains", json.preprocessed_array([])),
     #("indexable", json.bool(False)),
     #("quote_policy", json.string("public")),
+    #("role", role_to_json(s.role)),
   ])
 }
 
@@ -180,14 +207,17 @@ pub type Account {
     statuses_count: Int,
     followers_count: Int,
     following_count: Int,
-    /// Present only for verify_credentials (`CredentialAccount`); the `source`
-    /// key is omitted when None.
-    source: Option(AccountSource),
   )
 }
 
+/// The public account representation. Never contains private `source` data;
+/// use `CredentialAccount` for verify_credentials.
 pub fn account_to_json(a: Account) -> Json {
-  let base = [
+  json.object(account_fields(a))
+}
+
+fn account_fields(a: Account) -> List(#(String, Json)) {
+  [
     #("id", json.string(a.id)),
     #("username", json.string(a.username)),
     #("acct", json.string(a.acct)),
@@ -203,11 +233,11 @@ pub fn account_to_json(a: Account) -> Json {
     #("emojis", json.array(a.emojis, custom_emoji_to_json)),
     #("bot", json.bool(a.bot)),
     #("group", json.bool(a.group)),
-    #("discoverable", nullable(a.discoverable, json.bool)),
+    #("discoverable", json.nullable(a.discoverable, json.bool)),
     #("created_at", time_json(a.created_at)),
     #(
       "last_status_at",
-      nullable(a.last_status_at, fn(t) { json.string(format_date(t)) }),
+      json.nullable(a.last_status_at, fn(t) { json.string(format_date(t)) }),
     ),
     #("statuses_count", json.int(a.statuses_count)),
     #("followers_count", json.int(a.followers_count)),
@@ -222,10 +252,21 @@ pub fn account_to_json(a: Account) -> Json {
       ]),
     ),
   ]
-  case a.source {
-    Some(s) -> json.object([#("source", account_source_to_json(s)), ..base])
-    None -> json.object(base)
-  }
+}
+
+/// An account as returned to its owner by verify_credentials / update_credentials:
+/// all `Account` fields plus `source` and `role`.
+pub type CredentialAccount {
+  CredentialAccount(account: Account, source: AccountSource, role: Role)
+}
+
+pub fn credential_account_to_json(c: CredentialAccount) -> Json {
+  json.object(
+    list.append(account_fields(c.account), [
+      #("source", account_source_to_json(c.source)),
+      #("role", role_to_json(c.role)),
+    ]),
+  )
 }
 
 // ---------------------------------------------------------------- application / token
@@ -247,10 +288,10 @@ pub type Application {
 pub fn application_to_json(a: Application) -> Json {
   let base = [
     #("name", json.string(a.name)),
-    #("website", nullable(a.website, json.string)),
+    #("website", json.nullable(a.website, json.string)),
     #("scopes", json.array(a.scopes, json.string)),
     #("redirect_uris", json.array(a.redirect_uris, json.string)),
-    #("vapid_key", nullable(a.vapid_key, json.string)),
+    #("vapid_key", json.nullable(a.vapid_key, json.string)),
   ]
   let base = case a.client_id {
     Some(v) -> [#("client_id", json.string(v)), ..base]
@@ -319,11 +360,11 @@ pub fn media_attachment_to_json(m: MediaAttachment) -> Json {
   json.object([
     #("id", json.string(m.id)),
     #("type", json.string(media_type_to_string(m.kind))),
-    #("url", nullable(m.url, json.string)),
+    #("url", json.nullable(m.url, json.string)),
     #("preview_url", json.string(m.preview_url)),
-    #("remote_url", nullable(m.remote_url, json.string)),
-    #("description", nullable(m.description, json.string)),
-    #("blurhash", nullable(m.blurhash, json.string)),
+    #("remote_url", json.nullable(m.remote_url, json.string)),
+    #("description", json.nullable(m.description, json.string)),
+    #("blurhash", json.nullable(m.blurhash, json.string)),
   ])
 }
 
@@ -364,7 +405,9 @@ pub type Status {
   )
 }
 
-/// `poll` and `card` are always `null` (unsupported).
+/// Fixed protocol constants for this server version: `poll` and `card` are
+/// always `null` (unsupported), `quotes_count` is 0 and `quote_approval`
+/// advertises no quoting (`current_user: "denied"`).
 pub fn status_to_json(s: Status) -> Json {
   let base = [
     #("id", json.string(s.id)),
@@ -379,7 +422,7 @@ pub fn status_to_json(s: Status) -> Json {
       "media_attachments",
       json.array(s.media_attachments, media_attachment_to_json),
     ),
-    #("application", nullable(s.application, application_to_json)),
+    #("application", json.nullable(s.application, application_to_json)),
     #("mentions", json.array(s.mentions, mention_to_json)),
     #("tags", json.array(s.tags, tag_to_json)),
     #("emojis", json.array(s.emojis, custom_emoji_to_json)),
@@ -395,14 +438,17 @@ pub fn status_to_json(s: Status) -> Json {
         #("current_user", json.string("denied")),
       ]),
     ),
-    #("url", nullable(s.url, json.string)),
-    #("in_reply_to_id", nullable(s.in_reply_to_id, json.string)),
-    #("in_reply_to_account_id", nullable(s.in_reply_to_account_id, json.string)),
-    #("reblog", nullable(s.reblog, status_to_json)),
+    #("url", json.nullable(s.url, json.string)),
+    #("in_reply_to_id", json.nullable(s.in_reply_to_id, json.string)),
+    #(
+      "in_reply_to_account_id",
+      json.nullable(s.in_reply_to_account_id, json.string),
+    ),
+    #("reblog", json.nullable(s.reblog, status_to_json)),
     #("poll", json.null()),
     #("card", json.null()),
-    #("language", nullable(s.language, json.string)),
-    #("edited_at", nullable(s.edited_at, time_json)),
+    #("language", json.nullable(s.language, json.string)),
+    #("edited_at", json.nullable(s.edited_at, time_json)),
     #("favourited", json.bool(s.favourited)),
     #("reblogged", json.bool(s.reblogged)),
     #("muted", json.bool(s.muted)),
@@ -452,7 +498,7 @@ pub fn notification_to_json(n: Notification) -> Json {
     #("type", json.string(notification_type_to_string(n.kind))),
     #("created_at", time_json(n.created_at)),
     #("account", account_to_json(n.account)),
-    #("status", nullable(n.status, status_to_json)),
+    #("status", json.nullable(n.status, status_to_json)),
     #("group_key", json.string("ungrouped-" <> n.id)),
   ])
 }
@@ -495,53 +541,84 @@ pub fn relationship_to_json(r: Relationship) -> Json {
     #("domain_blocking", json.bool(r.domain_blocking)),
     #("endorsed", json.bool(r.endorsed)),
     #("note", json.string(r.note)),
-    #("languages", nullable(r.languages, fn(l) { json.array(l, json.string) })),
+    #(
+      "languages",
+      json.nullable(r.languages, fn(l) { json.array(l, json.string) }),
+    ),
   ])
 }
 
 // ---------------------------------------------------------------- instance
 
+/// Instance limits, supplied by the server so that advertised values match
+/// what it enforces. `max_featured_tags` and `max_pinned_statuses` should be 0
+/// when the feature is unsupported.
 pub type InstanceConfiguration {
   InstanceConfiguration(
     max_characters: Int,
     max_media_attachments: Int,
     characters_reserved_per_url: Int,
+    supported_mime_types: List(String),
+    image_size_limit: Int,
+    image_matrix_limit: Int,
+    video_size_limit: Int,
+    video_frame_rate_limit: Int,
+    video_matrix_limit: Int,
+    poll_max_options: Int,
+    poll_max_characters_per_option: Int,
+    poll_min_expiration: Int,
+    poll_max_expiration: Int,
+    max_featured_tags: Int,
+    max_pinned_statuses: Int,
+    max_display_name_length: Int,
+    max_note_length: Int,
+    max_avatar_description_length: Int,
+    max_header_description_length: Int,
+    max_profile_fields: Int,
+    profile_field_name_limit: Int,
+    profile_field_value_limit: Int,
   )
 }
 
-/// Encodes the status limits plus fixed placeholder limits for media, polls
-/// and accounts (required by masto.js; ochoko supports no polls).
-fn configuration_fields(c: InstanceConfiguration) -> List(#(String, Json)) {
+fn statuses_configuration(c: InstanceConfiguration) -> #(String, Json) {
+  #(
+    "statuses",
+    json.object([
+      #("max_characters", json.int(c.max_characters)),
+      #("max_media_attachments", json.int(c.max_media_attachments)),
+      #("characters_reserved_per_url", json.int(c.characters_reserved_per_url)),
+    ]),
+  )
+}
+
+fn media_and_polls_configuration(
+  c: InstanceConfiguration,
+) -> List(#(String, Json)) {
   [
-    #(
-      "statuses",
-      json.object([
-        #("max_characters", json.int(c.max_characters)),
-        #("max_media_attachments", json.int(c.max_media_attachments)),
-        #(
-          "characters_reserved_per_url",
-          json.int(c.characters_reserved_per_url),
-        ),
-      ]),
-    ),
     #(
       "media_attachments",
       json.object([
-        #("supported_mime_types", json.preprocessed_array([])),
-        #("image_size_limit", json.int(0)),
-        #("image_matrix_limit", json.int(0)),
-        #("video_size_limit", json.int(0)),
-        #("video_frame_rate_limit", json.int(0)),
-        #("video_matrix_limit", json.int(0)),
+        #(
+          "supported_mime_types",
+          json.array(c.supported_mime_types, json.string),
+        ),
+        #("image_size_limit", json.int(c.image_size_limit)),
+        #("image_matrix_limit", json.int(c.image_matrix_limit)),
+        #("video_size_limit", json.int(c.video_size_limit)),
+        #("video_frame_rate_limit", json.int(c.video_frame_rate_limit)),
+        #("video_matrix_limit", json.int(c.video_matrix_limit)),
       ]),
     ),
     #(
       "polls",
       json.object([
-        #("max_options", json.int(0)),
-        #("max_characters_per_option", json.int(0)),
-        #("min_expiration", json.int(0)),
-        #("max_expiration", json.int(0)),
+        #("max_options", json.int(c.poll_max_options)),
+        #(
+          "max_characters_per_option",
+          json.int(c.poll_max_characters_per_option),
+        ),
+        #("min_expiration", json.int(c.poll_min_expiration)),
+        #("max_expiration", json.int(c.poll_max_expiration)),
       ]),
     ),
   ]
@@ -592,11 +669,17 @@ pub fn instance_v1_to_json(i: InstanceV1) -> Json {
     #(
       "configuration",
       json.object([
-        #("accounts", json.object([#("max_featured_tags", json.int(0))])),
-        ..configuration_fields(i.configuration)
+        #(
+          "accounts",
+          json.object([
+            #("max_featured_tags", json.int(i.configuration.max_featured_tags)),
+          ]),
+        ),
+        statuses_configuration(i.configuration),
+        ..media_and_polls_configuration(i.configuration)
       ]),
     ),
-    #("contact_account", nullable(i.contact_account, account_to_json)),
+    #("contact_account", json.nullable(i.contact_account, account_to_json)),
     #("thumbnail", json.null()),
     #("rules", json.preprocessed_array([])),
   ])
@@ -613,6 +696,9 @@ pub type InstanceV2 {
     configuration: InstanceConfiguration,
     streaming_url: String,
     registrations_enabled: Bool,
+    registrations_approval_required: Bool,
+    /// Mastodon API version number reported in `api_versions.mastodon`.
+    api_version: Int,
     contact_email: String,
     contact_account: Account,
     active_month_users: Int,
@@ -660,31 +746,53 @@ pub fn instance_v2_to_json(i: InstanceV2) -> Json {
         #(
           "accounts",
           json.object([
-            #("max_featured_tags", json.int(0)),
-            #("max_pinned_statuses", json.int(0)),
-            #("max_display_name_length", json.int(30)),
-            #("max_note_length", json.int(500)),
-            #("max_avatar_description_length", json.int(0)),
-            #("max_header_description_length", json.int(0)),
-            #("max_profile_fields", json.int(4)),
-            #("profile_field_name_limit", json.int(255)),
-            #("profile_field_value_limit", json.int(255)),
+            #("max_featured_tags", json.int(i.configuration.max_featured_tags)),
+            #(
+              "max_pinned_statuses",
+              json.int(i.configuration.max_pinned_statuses),
+            ),
+            #(
+              "max_display_name_length",
+              json.int(i.configuration.max_display_name_length),
+            ),
+            #("max_note_length", json.int(i.configuration.max_note_length)),
+            #(
+              "max_avatar_description_length",
+              json.int(i.configuration.max_avatar_description_length),
+            ),
+            #(
+              "max_header_description_length",
+              json.int(i.configuration.max_header_description_length),
+            ),
+            #(
+              "max_profile_fields",
+              json.int(i.configuration.max_profile_fields),
+            ),
+            #(
+              "profile_field_name_limit",
+              json.int(i.configuration.profile_field_name_limit),
+            ),
+            #(
+              "profile_field_value_limit",
+              json.int(i.configuration.profile_field_value_limit),
+            ),
           ]),
         ),
         #("translation", json.object([#("enabled", json.bool(False))])),
         #("vapid", json.object([#("public_key", json.string(""))])),
-        ..configuration_fields(i.configuration)
+        statuses_configuration(i.configuration),
+        ..media_and_polls_configuration(i.configuration)
       ]),
     ),
     #(
       "registrations",
       json.object([
         #("enabled", json.bool(i.registrations_enabled)),
-        #("approval_required", json.bool(False)),
+        #("approval_required", json.bool(i.registrations_approval_required)),
         #("message", json.null()),
       ]),
     ),
-    #("api_versions", json.object([#("mastodon", json.int(2))])),
+    #("api_versions", json.object([#("mastodon", json.int(i.api_version))])),
     #(
       "contact",
       json.object([

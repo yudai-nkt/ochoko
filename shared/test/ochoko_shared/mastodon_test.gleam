@@ -47,7 +47,6 @@ fn account() -> mastodon.Account {
     statuses_count: 0,
     followers_count: 0,
     following_count: 0,
-    source: None,
   )
 }
 
@@ -88,6 +87,25 @@ fn instance_configuration() -> mastodon.InstanceConfiguration {
     max_characters: 5000,
     max_media_attachments: 4,
     characters_reserved_per_url: 23,
+    supported_mime_types: ["image/png"],
+    image_size_limit: 10_485_760,
+    image_matrix_limit: 16_777_216,
+    video_size_limit: 0,
+    video_frame_rate_limit: 0,
+    video_matrix_limit: 0,
+    poll_max_options: 0,
+    poll_max_characters_per_option: 0,
+    poll_min_expiration: 0,
+    poll_max_expiration: 0,
+    max_featured_tags: 0,
+    max_pinned_statuses: 0,
+    max_display_name_length: 30,
+    max_note_length: 500,
+    max_avatar_description_length: 0,
+    max_header_description_length: 0,
+    max_profile_fields: 4,
+    profile_field_name_limit: 255,
+    profile_field_value_limit: 255,
   )
 }
 
@@ -113,8 +131,26 @@ pub fn account_has_required_keys_test() {
   ])
 }
 
-pub fn account_source_only_when_present_test() {
+fn role() -> mastodon.Role {
+  mastodon.Role(
+    id: 3,
+    name: "Owner",
+    color: "",
+    position: 1000,
+    permissions: 1,
+    highlighted: True,
+    created_at: ts(),
+    updated_at: ts(),
+    collection_limit: 0,
+  )
+}
+
+pub fn account_never_has_source_test() {
   assert !dict.has_key(keys(mastodon.account_to_json(account())), "source")
+  assert !dict.has_key(keys(mastodon.account_to_json(account())), "role")
+}
+
+pub fn credential_account_has_source_and_role_test() {
   let source =
     mastodon.AccountSource(
       note: "hi",
@@ -122,12 +158,68 @@ pub fn account_source_only_when_present_test() {
       privacy: Public,
       sensitive: False,
       language: None,
+      role: role(),
     )
   let j =
-    mastodon.account_to_json(
-      mastodon.Account(..account(), source: Some(source)),
+    mastodon.credential_account_to_json(mastodon.CredentialAccount(
+      account: account(),
+      source: source,
+      role: role(),
+    ))
+  assert_keys(j, ["id", "acct", "created_at", "source", "role"])
+  let s = json.to_string(j)
+  let assert Ok(n) =
+    json.parse(s, decode.at(["source", "role", "name"], decode.string))
+  assert n == "Owner"
+  let assert Ok(c) =
+    json.parse(s, decode.at(["role", "collection_limit"], decode.int))
+  assert c == 0
+}
+
+pub fn instance_v2_limits_come_from_configuration_test() {
+  let j =
+    mastodon.instance_v2_to_json(mastodon.InstanceV2(
+      domain: "d",
+      title: "t",
+      version: "v",
+      source_url: "u",
+      description: "",
+      languages: [],
+      configuration: instance_configuration(),
+      streaming_url: "",
+      registrations_enabled: False,
+      registrations_approval_required: True,
+      api_version: 7,
+      contact_email: "",
+      contact_account: account(),
+      active_month_users: 0,
+      thumbnail_url: "",
+    ))
+  let s = json.to_string(j)
+  let assert Ok(len) =
+    json.parse(
+      s,
+      decode.at(["configuration", "accounts", "max_note_length"], decode.int),
     )
-  assert_keys(j, ["source"])
+  assert len == 500
+  let assert Ok(img) =
+    json.parse(
+      s,
+      decode.at(
+        ["configuration", "media_attachments", "image_size_limit"],
+        decode.int,
+      ),
+    )
+  assert img == 10_485_760
+  let assert Ok(ap) =
+    json.parse(
+      s,
+      decode.at(["registrations", "approval_required"], decode.bool),
+    )
+  assert ap
+  let assert Ok(v) =
+    json.parse(s, decode.at(["api_versions", "mastodon"], decode.int))
+  assert v == 7
 }
 
 pub fn field_has_required_keys_test() {
@@ -304,6 +396,8 @@ pub fn instance_v2_has_required_keys_test() {
       configuration: instance_configuration(),
       streaming_url: "wss://example.com",
       registrations_enabled: False,
+      registrations_approval_required: True,
+      api_version: 2,
       contact_email: "me@example.com",
       contact_account: account(),
       active_month_users: 1,
@@ -377,4 +471,10 @@ pub fn timestamp_format_test() {
       999_999_999,
     ))
     == "2000-02-29T00:00:00.999Z"
+}
+
+pub fn format_date_test() {
+  assert mastodon.format_date(timestamp.from_unix_seconds(1_795_091_696))
+    == "2026-11-19"
+  assert mastodon.format_date(timestamp.from_unix_seconds(0)) == "1970-01-01"
 }
