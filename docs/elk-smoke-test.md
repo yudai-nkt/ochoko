@@ -46,15 +46,16 @@ server (the "remote account") for the steps that need one.
 
 ## Finding 404'd endpoints in the server log
 
-`serve` logs every request through wisp's request logger, one line per request
-with the method, path and status code. While exercising Elk, filter the log
+`serve` logs every request to stdout through wisp's request logger, one line
+per request in the form `INFO <status> <METHOD> <path>` (no query string),
+for example `INFO 404 GET /api/v1/foo`. While exercising Elk, filter the log
 for 404s:
 
 ```sh
-journalctl -u ochoko --since "10 min ago" | grep ' 404'
+journalctl -u ochoko --since "10 min ago" | grep -E 'INFO 404 '
 # or, when run in a terminal:
 ochoko serve --config ochoko.toml 2>&1 | tee ochoko.log
-grep ' 404' ochoko.log
+grep -E 'INFO 404 ' ochoko.log
 ```
 
 Ignore paths unrelated to the client API (for example `/favicon.ico`, scanners

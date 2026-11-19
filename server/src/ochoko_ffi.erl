@@ -1,5 +1,5 @@
 -module(ochoko_ffi).
--export([unique_positive/0, read_password/0]).
+-export([unique_positive/0, read_password/0, probe_listen/2]).
 
 unique_positive() -> erlang:unique_integer([positive]).
 
@@ -31,4 +31,16 @@ is_tty() ->
         true -> true;
         _ -> false
     catch _:_ -> unknown
+    end.
+
+%% Check that Port can be bound on Interface, then release it again.
+probe_listen(Interface, Port) ->
+    case inet:parse_address(unicode:characters_to_list(Interface)) of
+        {error, _} -> {error, <<"invalid interface">>};
+        {ok, Ip} ->
+            case gen_tcp:listen(Port, [{ip, Ip}, {reuseaddr, true}]) of
+                {ok, Socket} -> gen_tcp:close(Socket), {ok, nil};
+                {error, Reason} ->
+                    {error, unicode:characters_to_binary(atom_to_list(Reason))}
+            end
     end.

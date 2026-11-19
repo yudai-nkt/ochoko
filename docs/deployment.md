@@ -61,9 +61,16 @@ ochoko serve --config /etc/ochoko/ochoko.toml
 ```
 
 `serve` migrates the database on start, then runs the delivery worker and the
-HTTP server under a supervisor. Requests are logged to stderr (method, path,
-status), which is also how to spot unimplemented API endpoints (see
-`elk-smoke-test.md`).
+HTTP server under a supervisor. Requests are logged to stdout as
+`INFO <status> <METHOD> <path>` (no query string), for example
+`INFO 404 GET /api/v1/foo`; this is also how to spot unimplemented API
+endpoints (see `elk-smoke-test.md`).
+
+Failure behavior: if the port cannot be bound or the key, config or database
+cannot be loaded, `serve` prints `error: ...` and exits with status 1. If the
+supervisor later gives up (its restart intensity is exceeded), `serve` also
+prints an error and exits with status 1, so `Restart=on-failure` in the systemd
+unit below restarts it.
 
 ## Reverse proxy
 
@@ -83,13 +90,17 @@ ochoko.ynkt.me {
 
 `reverse_proxy` keeps the incoming `Host` header by default, and Caddy obtains
 TLS certificates automatically. Do not add `header_up Host ...` and do not use
-`rewrite`/`uri` directives on this site.
+`rewrite`/`uri` directives on this site. Caddy also sets `X-Forwarded-For`,
+`X-Forwarded-Proto` and `X-Forwarded-Host` itself. ochoko does not read them;
+it builds all URLs from `host` in the config.
 
 ### nginx
 
 ```nginx
 location / {
     proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
     proxy_pass http://127.0.0.1:8000;   # no URI part, so the path is passed as sent
 }
 ```
@@ -141,11 +152,11 @@ Alternative: redirect to ochoko, which answers the same query itself
 
 ```caddyfile
 ynkt.me {
-    redir /.well-known/webfinger https://ochoko.ynkt.me{uri} 301
+    redir /.well-known/webfinger https://ochoko.ynkt.me{uri} 302
 }
 ```
 
-(nginx: `location = /.well-known/webfinger { return 301 https://ochoko.ynkt.me$request_uri; }`.)
+(nginx: `location = /.well-known/webfinger { return 302 https://ochoko.ynkt.me$request_uri; }`.)
 Some servers follow redirects less reliably than a direct answer, so the
 static JRD is preferred.
 

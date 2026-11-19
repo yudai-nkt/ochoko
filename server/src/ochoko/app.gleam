@@ -1,8 +1,11 @@
+import gleam/erlang/atom
 import gleam/erlang/process
+import gleam/int
 import gleam/otp/actor
 import gleam/otp/static_supervisor.{type Supervisor} as supervisor
 import gleam/otp/supervision
 import gleam/result
+import gleam/string
 import gleam/time/timestamp
 import mist
 import ochoko/config.{type Config}
@@ -21,22 +24,40 @@ import wisp/wisp_mist
 const production_interface = "127.0.0.1"
 
 /// Load the key, migrate the database, start the delivery worker and the HTTP
-/// server under a supervisor, then block forever. Only returns on a startup
-/// error.
+/// server under a supervisor, then block until the supervisor dies. Only
+/// returns on an error: a startup failure, or the supervisor giving up
+/// (restart intensity exceeded), which the caller turns into a non-zero exit
+/// so that systemd restarts the process.
 pub fn start(config: Config) -> Result(Nil, String) {
   wisp.configure_logger()
   use _ <- result.try(start_link(config, production_interface))
-  process.sleep_forever()
-  Ok(Nil)
+  let exit =
+    process.new_selector()
+    |> process.select_trapped_exits(fn(msg) { msg })
+    |> process.selector_receive_forever
+  Error("supervisor stopped: " <> string.inspect(exit.reason))
 }
 
 /// Like `start` but returns once the supervisor is running, linked to the
-/// caller, and lets the caller choose the interface.
+/// caller, and lets the caller choose the interface. The caller traps exits,
+/// so a failing child cannot take it down; the failure comes back as `Error`.
 pub fn start_link(
   config: Config,
   interface: String,
 ) -> Result(actor.Started(Supervisor), String) {
+  process.trap_exits(True)
   use ctx <- result.try(build_context(config))
+  use _ <- result.try(
+    probe_listen(interface, config.listen_port)
+    |> result.map_error(fn(reason) {
+      "cannot listen on "
+      <> interface
+      <> ":"
+      <> int.to_string(config.listen_port)
+      <> ": "
+      <> reason
+    }),
+  )
   let handler =
     wisp_mist.handler(handle(_, ctx), config.secret_key_base)
     |> mist.new
@@ -46,10 +67,30 @@ pub fn start_link(
   |> supervisor.add(supervision.worker(fn() { delivery.start(ctx) }))
   |> supervisor.add(mist.supervised(handler))
   |> supervisor.start
-  |> result.map_error(fn(_) {
-    "could not start the server on port " <> int_to_string(config.listen_port)
+  |> result.map_error(fn(e) {
+    "could not start the delivery worker or the HTTP server: "
+    <> describe_start_error(e)
   })
 }
+
+/// Stop a supervisor started with `start_link`.
+pub fn stop(started: actor.Started(Supervisor)) -> Nil {
+  exit_process(started.pid, atom.create("shutdown"))
+}
+
+fn describe_start_error(e: actor.StartError) -> String {
+  case e {
+    actor.InitTimeout -> "timed out"
+    actor.InitFailed(reason) -> reason
+    actor.InitExited(reason) -> string.inspect(reason)
+  }
+}
+
+@external(erlang, "ochoko_ffi", "probe_listen")
+fn probe_listen(interface: String, port: Int) -> Result(Nil, String)
+
+@external(erlang, "erlang", "exit")
+fn exit_process(pid: process.Pid, reason: atom.Atom) -> Nil
 
 fn handle(req: wisp.Request, ctx: Context) -> wisp.Response {
   use <- wisp.log_request(req)
@@ -87,6 +128,3 @@ fn build_context(config: Config) -> Result(Context, String) {
 fn describe_db_error(e: sqlight.Error) -> String {
   "database: " <> e.message
 }
-
-@external(erlang, "erlang", "integer_to_binary")
-fn int_to_string(n: Int) -> String
