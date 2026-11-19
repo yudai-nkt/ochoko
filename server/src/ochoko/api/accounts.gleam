@@ -36,7 +36,7 @@ pub fn json_ok(body: json.Json) -> Response {
   wisp.json_response(json.to_string(body), 200)
 }
 
-fn error_response(message: String, status: Int) -> Response {
+pub fn error_response(message: String, status: Int) -> Response {
   wisp.json_response(
     json.to_string(mastodon.error_to_json(mastodon.Error(message, None))),
     status,

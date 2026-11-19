@@ -7,6 +7,7 @@ import ochoko/api/apps
 import ochoko/api/instance
 import ochoko/api/oauth
 import ochoko/api/search
+import ochoko/api/statuses
 import ochoko/context.{type Context}
 import ochoko/web/federation
 import wisp.{type Request, type Response}
@@ -43,6 +44,14 @@ pub fn handle_request(req: Request, ctx: Context) -> Response {
     ["api", "v1", "accounts", id, "unfollow"] -> accounts.unfollow(req, ctx, id)
     ["api", "v1", "accounts", id, "remove_from_followers"] ->
       accounts.remove_from_followers(req, ctx, id)
+    ["api", "v1", "statuses"] -> statuses.create(req, ctx)
+    ["api", "v1", "statuses", id] ->
+      case req.method {
+        http.Delete -> statuses.delete(req, ctx, id)
+        _ -> statuses.show(req, ctx, id)
+      }
+    ["api", "v1", "statuses", id, "context"] -> statuses.context(req, ctx, id)
+    ["statuses", id] -> federation.status(req, ctx, id)
     ["oauth", "authorize"] -> oauth.authorize(req, ctx)
     ["oauth", "token"] -> oauth.token(req, ctx)
     ["oauth", "revoke"] -> oauth.revoke(req, ctx)

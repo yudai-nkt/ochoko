@@ -1,4 +1,4 @@
-//// Statuses: remote ones received over federation (own ones come later).
+//// Statuses: remote ones received over federation, and our own.
 
 import gleam/dynamic/decode
 import gleam/list
@@ -7,6 +7,7 @@ import gleam/order
 import gleam/result
 import gleam/string
 import gleam/time/timestamp.{type Timestamp}
+import ochoko/config.{type Config}
 import ochoko/federation/note.{type Attachment, type InboundNote, Attachment}
 import ochoko/id
 import ochoko/store/page.{type Page}
@@ -122,6 +123,144 @@ pub fn insert_remote(
       |> result.all
       |> result.replace(Nil)
   }
+}
+
+/// Stores a status of our own (`actor_id` NULL, raw `text` kept) and returns
+/// it. Its ID derives from `now`; its URI and URL are `config.status_uri`.
+pub fn insert_own(
+  conn: sqlight.Connection,
+  c: Config,
+  text: String,
+  html: String,
+  v: Visibility,
+  spoiler: String,
+  sensitive: Bool,
+  language: Option(String),
+  now: Timestamp,
+) -> Result(StatusRow, sqlight.Error) {
+  let status_id = id.generate(now)
+  let uri = config.status_uri(c, status_id)
+  use _ <- result.try(sqlight.query(
+    "INSERT INTO statuses
+         (id, uri, actor_id, content_html, text, spoiler_text, sensitive,
+          visibility, url, in_reply_to_uri, language, published_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+    on: conn,
+    with: [
+      sqlight.int(status_id),
+      sqlight.text(uri),
+      sqlight.text(html),
+      sqlight.text(text),
+      sqlight.text(spoiler),
+      sqlight.bool(sensitive),
+      sqlight.text(visibility_text(v)),
+      sqlight.text(uri),
+      nullable(language),
+      sqlight.int(unix(now)),
+    ],
+    expecting: decode.success(Nil),
+  ))
+  StatusRow(
+    id: status_id,
+    uri:,
+    actor_id: None,
+    content_html: html,
+    text: Some(text),
+    spoiler_text: spoiler,
+    sensitive:,
+    visibility: v,
+    url: Some(uri),
+    in_reply_to_uri: None,
+    language:,
+    published_at: timestamp.from_unix_seconds(unix(now)),
+    deleted_at: None,
+    attachments: [],
+  )
+  |> Ok
+}
+
+/// Marks our own status `id` as deleted (the row is kept as a tombstone).
+pub fn mark_deleted(
+  conn: sqlight.Connection,
+  id: Int,
+  now: Timestamp,
+) -> Result(Nil, sqlight.Error) {
+  sqlight.query(
+    "UPDATE statuses SET deleted_at = ?
+     WHERE id = ? AND actor_id IS NULL AND deleted_at IS NULL",
+    on: conn,
+    with: [sqlight.int(unix(now)), sqlight.int(id)],
+    expecting: decode.success(Nil),
+  )
+  |> result.replace(Nil)
+}
+
+/// The status `id`, deleted or not.
+pub fn get(
+  conn: sqlight.Connection,
+  id: Int,
+) -> Result(Option(StatusRow), sqlight.Error) {
+  use rows <- result.try(sqlight.query(
+    "SELECT " <> select_columns <> " FROM statuses WHERE id = ?",
+    on: conn,
+    with: [sqlight.int(id)],
+    expecting: status_decoder(),
+  ))
+  use rows <- result.map(load_attachments(conn, list.take(rows, 1)))
+  list.first(rows) |> option.from_result
+}
+
+/// How long an `Idempotency-Key` stays valid, in seconds.
+const idempotency_ttl = 3600
+
+/// The live status previously created under `key`, if any. Expired keys are
+/// purged on the way.
+pub fn find_by_idempotency_key(
+  conn: sqlight.Connection,
+  key: String,
+  now: Timestamp,
+) -> Result(Option(StatusRow), sqlight.Error) {
+  use _ <- result.try(sqlight.query(
+    "DELETE FROM idempotency_keys WHERE created_at <= ?",
+    on: conn,
+    with: [sqlight.int(unix(now) - idempotency_ttl)],
+    expecting: decode.success(Nil),
+  ))
+  use ids <- result.try(sqlight.query(
+    "SELECT status_id FROM idempotency_keys WHERE key = ?",
+    on: conn,
+    with: [sqlight.text(key)],
+    expecting: decode.at([0], decode.int),
+  ))
+  case ids {
+    [status_id, ..] ->
+      get(conn, status_id)
+      |> result.map(
+        option.then(_, fn(row) {
+          case row.deleted_at {
+            None -> Some(row)
+            Some(_) -> None
+          }
+        }),
+      )
+    [] -> Ok(None)
+  }
+}
+
+pub fn remember_idempotency_key(
+  conn: sqlight.Connection,
+  key: String,
+  status_id: Int,
+  now: Timestamp,
+) -> Result(Nil, sqlight.Error) {
+  sqlight.query(
+    "INSERT OR REPLACE INTO idempotency_keys (key, status_id, created_at)
+     VALUES (?, ?, ?)",
+    on: conn,
+    with: [sqlight.text(key), sqlight.int(status_id), sqlight.int(unix(now))],
+    expecting: decode.success(Nil),
+  )
+  |> result.replace(Nil)
 }
 
 /// Deletes the status `uri`, but only if it belongs to `actor_id`.

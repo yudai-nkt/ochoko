@@ -42,7 +42,7 @@ pub fn actor_json(c: Config, p: Profile, public_pem: String) -> json.Json {
     #("url", json.string("https://" <> c.host <> "/profile")),
     #("inbox", json.string(id <> "/inbox")),
     #("outbox", json.string(id <> "/outbox")),
-    #("followers", json.string(id <> "/followers")),
+    #("followers", json.string(config.followers_uri(c))),
     #("following", json.string(id <> "/following")),
     #(
       "endpoints",

@@ -125,6 +125,12 @@ CREATE TABLE deliveries (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE idempotency_keys (
+  key TEXT PRIMARY KEY,
+  status_id INTEGER NOT NULL REFERENCES statuses ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE processed_activities (
   uri TEXT PRIMARY KEY,
   received_at INTEGER NOT NULL

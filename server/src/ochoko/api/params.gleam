@@ -5,6 +5,7 @@ import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/http
 import gleam/http/request
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
@@ -76,6 +77,16 @@ fn parse_json(body: String) -> Result(Params, Nil) {
   let value =
     decode.one_of(decode.string, [
       decode.list(decode.string) |> decode.map(string.join(_, "\n")),
+      decode.bool
+        |> decode.map(fn(b) {
+          case b {
+            True -> "true"
+            False -> "false"
+          }
+        }),
+      decode.int |> decode.map(int.to_string),
+      // Objects (e.g. `poll`) are only reported as present.
+      decode.dict(decode.string, decode.dynamic) |> decode.map(fn(_) { "{}" }),
       decode.success(""),
     ])
   json.parse(body, decode.dict(decode.string, value))

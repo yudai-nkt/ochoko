@@ -34,6 +34,30 @@ pub fn with_connection(path: String, f: fn(sqlight.Connection) -> a) -> a {
   result
 }
 
+/// Runs `f` in an immediate transaction: committed if it returns `Ok`, rolled
+/// back otherwise. Taking the write lock up front lets `f` read-then-write
+/// without racing other writers.
+pub fn transaction(
+  conn: sqlight.Connection,
+  f: fn() -> Result(a, sqlight.Error),
+) -> Result(a, sqlight.Error) {
+  use _ <- result.try(sqlight.exec("BEGIN IMMEDIATE", on: conn))
+  case f() {
+    Ok(value) ->
+      case sqlight.exec("COMMIT", on: conn) {
+        Ok(Nil) -> Ok(value)
+        Error(e) -> {
+          let _ = sqlight.exec("ROLLBACK", on: conn)
+          Error(e)
+        }
+      }
+    Error(e) -> {
+      let _ = sqlight.exec("ROLLBACK", on: conn)
+      Error(e)
+    }
+  }
+}
+
 /// Apply pending migrations, tracking progress in `PRAGMA user_version`.
 pub fn migrate(conn: sqlight.Connection) -> Result(Nil, sqlight.Error) {
   use current <- result.try(user_version(conn))

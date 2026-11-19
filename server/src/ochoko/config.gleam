@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/result
 import gleam/string
 import simplifile
@@ -53,6 +54,16 @@ pub fn load(path: String) -> Result(Config, String) {
 
 pub fn actor_id(c: Config) -> String {
   "https://" <> c.host <> "/me"
+}
+
+/// Our followers collection.
+pub fn followers_uri(c: Config) -> String {
+  actor_id(c) <> "/followers"
+}
+
+/// The URI (and public URL) of our status `id`.
+pub fn status_uri(c: Config, id: Int) -> String {
+  "https://" <> c.host <> "/statuses/" <> int.to_string(id)
 }
 
 pub fn key_id(c: Config) -> String {

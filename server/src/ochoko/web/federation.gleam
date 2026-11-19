@@ -2,16 +2,20 @@
 
 import gleam/http.{Get}
 import gleam/http/response
+import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/crypto/rsa
 import ochoko/db
+import ochoko/federation/activities
 import ochoko/federation/inbox
 import ochoko/federation/local_actor
 import ochoko/store/follows
 import ochoko/store/profile
+import ochoko/store/statuses
 import wisp.{type Request, type Response}
 
 const activity_json = "application/activity+json; charset=utf-8"
@@ -75,6 +79,25 @@ pub fn inbox(req: Request, ctx: Context) -> Response {
 /// Statuses are not published yet, so the outbox is always empty.
 pub fn outbox(req: Request, ctx: Context) -> Response {
   collection(req, ctx, "/outbox", fn(_) { Ok(0) })
+}
+
+/// One of our statuses as a `Note`. Deleted ones are gone (410); remote and
+/// unknown ones are not ours to serve (404).
+pub fn status(req: Request, ctx: Context, id: String) -> Response {
+  use <- wisp.require_method(req, Get)
+  let found = case int.parse(id) {
+    Error(Nil) -> Ok(None)
+    Ok(n) -> db.with_connection(ctx.db_path, statuses.get(_, n))
+  }
+  case found {
+    Error(_) -> wisp.internal_server_error()
+    Ok(Some(row)) if row.actor_id == None ->
+      case row.deleted_at {
+        Some(_) -> wisp.response(410)
+        None -> activity_response(activities.note_json(ctx.config, row))
+      }
+    Ok(_) -> wisp.not_found()
+  }
 }
 
 fn collection(req, ctx: Context, suffix, count) -> Response {
