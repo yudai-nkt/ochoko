@@ -45,7 +45,7 @@ pub fn search(req: Request, ctx: Context) -> Response {
         |> list.map(fn(found) {
           case found {
             Local -> present.local_account(ctx, conn)
-            Remote(actor) -> present.remote_account(actor, conn)
+            Remote(actor) -> present.remote_account(ctx, actor, conn)
           }
         })
       })

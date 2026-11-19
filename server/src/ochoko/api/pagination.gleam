@@ -6,16 +6,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import ochoko/store/page.{type Page, Page}
 import wisp.{type Request}
-
-pub type Page {
-  Page(
-    max_id: Option(Int),
-    since_id: Option(Int),
-    min_id: Option(Int),
-    limit: Int,
-  )
-}
 
 pub const default_limit = 20
 

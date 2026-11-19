@@ -1,6 +1,7 @@
 import gleam/http
 import gleam/option.{None, Some}
-import ochoko/api/pagination.{Page}
+import ochoko/api/pagination
+import ochoko/store/page.{Page}
 import wisp/simulate
 
 pub fn pagination_parse_limits_test() {

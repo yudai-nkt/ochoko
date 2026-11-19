@@ -7,9 +7,9 @@ import gleam/order
 import gleam/result
 import gleam/string
 import gleam/time/timestamp.{type Timestamp}
-import ochoko/api/pagination.{type Page}
 import ochoko/federation/note.{type Attachment, type InboundNote, Attachment}
 import ochoko/id
+import ochoko/store/page.{type Page}
 import ochoko_shared/mastodon.{
   type Visibility, Direct, Private, Public, Unlisted,
 }

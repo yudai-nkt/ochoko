@@ -41,13 +41,17 @@ fn default_avatar(ctx: Context) -> String {
   "https://" <> ctx.config.host <> "/static/avatar.png"
 }
 
+fn default_header(ctx: Context) -> String {
+  "https://" <> ctx.config.host <> "/static/header.png"
+}
+
 pub fn local_account(
   ctx: Context,
   conn: sqlight.Connection,
 ) -> mastodon.Account {
   let p = local_profile(conn)
   let avatar = option.unwrap(p.avatar_url, default_avatar(ctx))
-  let header = option.unwrap(p.header_url, "")
+  let header = option.unwrap(p.header_url, default_header(ctx))
   mastodon.Account(
     id: local_account_id,
     username: ctx.config.handle,
@@ -107,14 +111,15 @@ pub fn credential_account(
   )
 }
 
-/// Remote counters other than statuses are unknown and reported as 0. A
-/// missing avatar is reported as an empty URL.
+/// Remote counters other than statuses are unknown and reported as 0.
+/// Missing images fall back to our placeholders.
 pub fn remote_account(
+  ctx: Context,
   a: RemoteActor,
   conn: sqlight.Connection,
 ) -> mastodon.Account {
-  let avatar = option.unwrap(a.avatar_url, "")
-  let header = option.unwrap(a.header_url, "")
+  let avatar = option.unwrap(a.avatar_url, default_avatar(ctx))
+  let header = option.unwrap(a.header_url, default_header(ctx))
   mastodon.Account(
     id: int.to_string(a.id),
     username: a.username,
@@ -188,7 +193,7 @@ fn media_attachment(
   position: Int,
 ) -> mastodon.MediaAttachment {
   mastodon.MediaAttachment(
-    id: int.to_string(row.id) <> int.to_string(position),
+    id: int.to_string(row.id) <> "-" <> int.to_string(position),
     kind: media_kind(a.media_type),
     url: Some(a.url),
     preview_url: a.url,
@@ -198,21 +203,22 @@ fn media_attachment(
   )
 }
 
-/// The `Status` entity of a stored status. Interaction counts are 0 and the
-/// viewer flags false; replies point at the parent when it is stored.
+/// The `Status` entity of a stored status, or `Error(Nil)` if its author
+/// cannot be loaded. Interaction counts are 0 and the viewer flags false;
+/// replies point at the parent when it is stored.
 pub fn status(
   ctx: Context,
   conn: sqlight.Connection,
   row: StatusRow,
-) -> mastodon.Status {
-  let account = case row.actor_id {
-    None -> local_account(ctx, conn)
-    // The foreign key guarantees the actor exists.
-    Some(id) -> {
-      let assert Ok(Some(actor)) = remote_actors.get(conn, id)
-      remote_account(actor, conn)
-    }
-  }
+) -> Result(mastodon.Status, Nil) {
+  use account <- result.map(case row.actor_id {
+    None -> Ok(local_account(ctx, conn))
+    Some(id) ->
+      case remote_actors.get(conn, id) {
+        Ok(Some(actor)) -> Ok(remote_account(ctx, actor, conn))
+        _ -> Error(Nil)
+      }
+  })
   let parent = case row.in_reply_to_uri {
     None -> None
     Some(uri) -> statuses.get_by_uri(conn, uri) |> result.unwrap(None)

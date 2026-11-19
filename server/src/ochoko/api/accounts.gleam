@@ -86,7 +86,7 @@ fn account_json(
 ) -> json.Json {
   mastodon.account_to_json(case target {
     Local -> present.local_account(ctx, conn)
-    Remote(actor) -> present.remote_account(actor, conn)
+    Remote(actor) -> present.remote_account(ctx, actor, conn)
   })
 }
 
@@ -158,7 +158,10 @@ pub fn lookup(req: Request, ctx: Context) -> Response {
             find_remote(ctx, conn, user, domain, True) |> result.map(Remote)
         }
       _ ->
-        case acct != "" && string.lowercase(acct) == ctx.config.handle {
+        case
+          acct != ""
+          && string.lowercase(acct) == string.lowercase(ctx.config.handle)
+        {
           True -> Ok(Local)
           False -> Error(Nil)
         }
@@ -178,11 +181,12 @@ pub fn statuses(req: Request, ctx: Context, id: String) -> Response {
     Local -> None
     Remote(actor) -> Some(actor.id)
   }
+  let page = pagination.parse(req)
   let pinned = list.key_find(wisp.get_query(req), "pinned") == Ok("true")
   case pinned {
     True -> json_ok(json.preprocessed_array([]))
     False ->
-      case statuses.list_by_actor(conn, actor_id, pagination.parse(req)) {
+      case statuses.list_by_actor(conn, actor_id, page) {
         Error(e) -> server_error(e)
         Ok(rows) -> {
           let ids = list.map(rows, fn(r) { r.id })
@@ -191,12 +195,13 @@ pub fn statuses(req: Request, ctx: Context, id: String) -> Response {
             <> ctx.config.host
             <> "/api/v1/accounts/"
             <> id
-            <> "/statuses"
+            <> "/statuses?limit="
+            <> int.to_string(page.limit)
           let res =
             json_ok(
-              json.array(rows, fn(row) {
-                mastodon.status_to_json(present.status(ctx, conn, row))
-              }),
+              rows
+              |> list.filter_map(present.status(ctx, conn, _))
+              |> json.array(mastodon.status_to_json),
             )
           case
             pagination.link_header(
@@ -241,7 +246,7 @@ fn relations(
           ids
           |> list.filter_map(fn(id) {
             case remote_actors.get(conn, id) {
-              Ok(Some(actor)) -> Ok(present.remote_account(actor, conn))
+              Ok(Some(actor)) -> Ok(present.remote_account(ctx, actor, conn))
               _ -> Error(Nil)
             }
           })
