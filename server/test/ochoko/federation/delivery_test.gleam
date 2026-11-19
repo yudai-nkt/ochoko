@@ -293,3 +293,22 @@ pub fn crash_loop_is_eventually_dropped_test() {
   assert run(path, fn(_) { panic as "boom" }) == 0
   assert rows(path) == []
 }
+
+pub fn posted_request_has_user_agent_test() {
+  let path = support.temp_db_path()
+  insert(path, "https://a.example/inbox", 0, now, 0)
+  let #(send, recorded) = support.recording_send(status(200))
+  assert run(path, send) == 1
+  let assert [req] = recorded()
+  assert request.get_header(req, "user-agent")
+    == Ok("ochoko/0.1.0 (+https://ochoko.ynkt.me/)")
+}
+
+pub fn private_inbox_is_dropped_without_sending_test() {
+  let path = support.temp_db_path()
+  insert(path, "https://127.0.0.1:8000/me/inbox", 0, now, 0)
+  let #(send, recorded) = support.recording_send(status(200))
+  assert run(path, send) == 1
+  assert recorded() == []
+  assert rows(path) == []
+}

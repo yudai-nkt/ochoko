@@ -6,19 +6,14 @@
 //// Tests that need to observe completion use `run_once_and_wait`.
 
 import gleam/erlang/process.{type Subject}
-import gleam/http
-import gleam/http/request
 import gleam/http/response
 import gleam/int
 import gleam/list
 import gleam/otp/actor
-import gleam/result
-import gleam/uri
-import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/db
+import ochoko/http_client
 import ochoko/http_transport
-import ochoko/signature
 import ochoko/store/deliveries.{type Delivery}
 import wisp
 
@@ -149,20 +144,10 @@ fn deliver(ctx: Context, row: Delivery) -> Nil {
 }
 
 fn attempt(ctx: Context, row: Delivery) -> Outcome {
-  case uri.parse(row.inbox) |> result.try(request.from_uri) {
-    Error(_) -> Drop("invalid inbox URL")
-    Ok(req) -> {
-      let req =
-        req
-        |> request.set_method(http.Post)
-        |> request.set_header("content-type", "application/activity+json")
-        |> request.set_body(row.body)
-        |> signature.sign(ctx.private_key, config.key_id(ctx.config), ctx.now())
-      case ctx.send(req) {
-        Ok(res) -> classify(res)
-        Error(e) -> Retry(http_transport.describe_error(e))
-      }
-    }
+  case http_client.signed_post(ctx, row.inbox, row.body) {
+    Ok(res) -> classify(res)
+    Error(http_transport.Refused(reason)) -> Drop(reason)
+    Error(e) -> Retry(http_transport.describe_error(e))
   }
 }
 

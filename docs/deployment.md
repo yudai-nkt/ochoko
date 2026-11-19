@@ -122,6 +122,33 @@ ids in ochoko's routes are plain ASCII, but any future route with encoded
 characters in a signed path must decode explicitly. Dot segments (`..`) are
 removed by `path_segments` for routing only; the signed string is untouched.
 
+## Outbound requests
+
+ochoko fetches remote actors, notes and WebFinger documents, and delivers
+activities to remote inboxes. All of these requests:
+
+- go to `https://` URLs only (plain `http` is refused);
+- are refused, without being sent, when the host is `localhost`
+  (or `*.localhost`) or an IP literal in a loopback, private, link-local,
+  unspecified, shared (100.64.0.0/10), multicast or reserved range, for IPv4
+  and IPv6 (including IPv4-mapped IPv6 addresses);
+- carry the User-Agent `ochoko/0.1.0 (+https://{host}/)` (GoToSocial rejects
+  requests without one);
+- time out after 10 seconds.
+
+Fetched documents larger than 1 MiB are rejected, either up front by their
+`Content-Length` or after reading by their actual size. The read itself is
+bounded only by the timeout: Erlang's `httpc` buffers the whole body before
+ochoko sees it.
+
+Limitations: host *names* are not resolved before the check, so a public DNS
+name that resolves to a private address is not caught. If ochoko shares a
+network with sensitive services, also restrict its egress at the firewall
+(for example, deny traffic from the `ochoko` user to private ranges).
+
+WebFinger lookups follow up to three redirects, each subject to the same
+checks; other fetches do not follow redirects.
+
 ## WebFinger on `ynkt.me`
 
 The handle is `@yudai@ynkt.me` but the server lives at `ochoko.ynkt.me`, so

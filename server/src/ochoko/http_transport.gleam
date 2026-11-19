@@ -14,12 +14,19 @@ pub type Send =
 pub type HttpError {
   Timeout
   Unreachable(String)
+  /// The URL may not be fetched (scheme or host not allowed); nothing was
+  /// sent.
+  Refused(String)
+  /// The response body exceeded the size limit.
+  TooLarge
 }
 
 pub fn describe_error(e: HttpError) -> String {
   case e {
     Timeout -> "timeout"
     Unreachable(reason) -> "unreachable: " <> reason
+    Refused(reason) -> "refused: " <> reason
+    TooLarge -> "response too large"
   }
 }
 
