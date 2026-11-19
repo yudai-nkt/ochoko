@@ -228,3 +228,12 @@ pub fn user_token(ctx: Context) -> String {
     })
   token
 }
+
+/// A unique SQLite file path whose database has no tables, so that every
+/// query fails.
+pub fn unmigrated_db_path() -> String {
+  let path = temp_path_ffi()
+  let assert Ok(conn) = db.open(path)
+  let assert Ok(Nil) = sqlight.close(conn)
+  path
+}

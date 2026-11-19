@@ -65,42 +65,91 @@ fn authenticate(
   body: String,
 ) -> Response {
   case remote_actor.by_key_id(ctx, parsed.key_id) {
-    Error(_) ->
+    Error(remote_actor.DatabaseError(_) as e) -> lookup_failed(parsed, e)
+    Error(remote_actor.FetchError(_)) ->
       case list.contains(envelope.types, "Delete") {
-        True -> wisp.response(202)
+        True -> authenticate_stale_delete(ctx, req, parsed, envelope, body)
         False -> wisp.response(401)
       }
     Ok(signer) ->
       case verify_with_refetch(ctx, req, parsed, signer) {
-        Error(_) -> wisp.response(401)
-        Ok(signer) ->
-          case signer.uri == envelope.actor {
-            False -> wisp.response(401)
-            True -> process(ctx, signer, envelope, body)
-          }
+        Error(res) -> res
+        Ok(signer) -> attribute(ctx, signer, envelope, body)
       }
   }
 }
 
+fn lookup_failed(
+  parsed: signature.Parsed,
+  e: remote_actor.ActorError,
+) -> Response {
+  wisp.log_error(
+    "inbox: key lookup for "
+    <> parsed.key_id
+    <> " failed: "
+    <> remote_actor.describe_error(e),
+  )
+  wisp.internal_server_error()
+}
+
+/// A `Delete` whose signer cannot be fetched (typically 410 for a deleted
+/// actor) is verified against the stored key, however old, so that the
+/// actor's deletion still takes effect. Without a stored key it is accepted
+/// and ignored.
+fn authenticate_stale_delete(
+  ctx: Context,
+  req: request.Request(String),
+  parsed: signature.Parsed,
+  envelope: Envelope,
+  body: String,
+) -> Response {
+  case remote_actor.stale_by_key_id(ctx, parsed.key_id) {
+    Error(e) -> lookup_failed(parsed, e)
+    Ok(None) -> wisp.response(202)
+    Ok(Some(signer)) ->
+      case verify(ctx, req, parsed, signer) {
+        Ok(Nil) -> attribute(ctx, signer, envelope, body)
+        Error(_) -> wisp.response(401)
+      }
+  }
+}
+
+/// The activity must be by the signer.
+fn attribute(
+  ctx: Context,
+  signer: RemoteActor,
+  envelope: Envelope,
+  body: String,
+) -> Response {
+  case signer.uri == envelope.actor {
+    False -> wisp.response(401)
+    True -> process(ctx, signer, envelope, body)
+  }
+}
+
 /// Verifies against the cached key; on a bad signature refetches the actor
-/// once (the key may have been rotated) and tries again.
+/// once (the key may have been rotated), requiring it to list the signing
+/// key, and tries again.
 fn verify_with_refetch(
   ctx: Context,
   req: request.Request(String),
   parsed: signature.Parsed,
   signer: RemoteActor,
-) -> Result(RemoteActor, Nil) {
+) -> Result(RemoteActor, Response) {
   case verify(ctx, req, parsed, signer) {
     Ok(Nil) -> Ok(signer)
-    Error(signature.BadSignature) -> {
-      use fresh <- result.try(
-        remote_actor.refetch(ctx, signer.uri) |> result.replace_error(Nil),
-      )
-      verify(ctx, req, parsed, fresh)
-      |> result.replace_error(Nil)
-      |> result.replace(fresh)
-    }
-    Error(_) -> Error(Nil)
+    Error(signature.BadSignature) ->
+      case remote_actor.refetch_for_key(ctx, signer.uri, parsed.key_id) {
+        Error(remote_actor.DatabaseError(_) as e) ->
+          Error(lookup_failed(parsed, e))
+        Error(remote_actor.FetchError(_)) -> Error(wisp.response(401))
+        Ok(fresh) ->
+          case verify(ctx, req, parsed, fresh) {
+            Ok(Nil) -> Ok(fresh)
+            Error(_) -> Error(wisp.response(401))
+          }
+      }
+    Error(_) -> Error(wisp.response(401))
   }
 }
 
@@ -126,7 +175,7 @@ fn process(
   let inbound = resolve_note(ctx, signer, envelope, body)
   let outcome =
     db.with_connection(ctx.db_path, fn(conn) {
-      in_transaction(conn, fn() {
+      db.transaction(conn, fn() {
         use seen <- result.try(processed_activities.is_processed(
           conn,
           envelope.id,
@@ -154,20 +203,6 @@ fn process(
         "inbox: failed to process " <> envelope.id <> ": " <> e.message,
       )
       wisp.internal_server_error()
-    }
-  }
-}
-
-fn in_transaction(
-  conn: sqlight.Connection,
-  f: fn() -> Result(Nil, sqlight.Error),
-) -> Result(Nil, sqlight.Error) {
-  use _ <- result.try(sqlight.exec("BEGIN IMMEDIATE", on: conn))
-  case f() {
-    Ok(Nil) -> sqlight.exec("COMMIT", on: conn)
-    Error(e) -> {
-      let _ = sqlight.exec("ROLLBACK", on: conn)
-      Error(e)
     }
   }
 }

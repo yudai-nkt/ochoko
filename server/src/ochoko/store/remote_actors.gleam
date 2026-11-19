@@ -193,3 +193,23 @@ pub fn delete(conn: sqlight.Connection, id: Int) -> Result(Nil, sqlight.Error) {
   )
   |> result.replace(Nil)
 }
+
+/// Rows (with `fetched_at`) whose key is `key_id`, newest fetch first.
+pub fn get_cached_by_key_id(
+  conn: sqlight.Connection,
+  key_id: String,
+) -> Result(List(#(RemoteActor, Int)), sqlight.Error) {
+  sqlight.query(
+    "SELECT "
+      <> columns
+      <> ", fetched_at FROM remote_actors WHERE public_key_id = ?
+         ORDER BY fetched_at DESC",
+    on: conn,
+    with: [sqlight.text(key_id)],
+    expecting: {
+      use actor <- decode.then(row())
+      use fetched_at <- decode.field(16, decode.int)
+      decode.success(#(actor, fetched_at))
+    },
+  )
+}

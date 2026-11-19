@@ -357,3 +357,141 @@ pub fn signed_get_is_signed_test() {
     rsa.public_from_pem(rsa.public_pem(support.test_key()))
   let assert Ok(Nil) = signature.verify(req, parsed, public, ctx.now())
 }
+
+// --- GoToSocial key ids --------------------------------------------------------
+
+const gts_actor = "https://gts.example/users/zork"
+
+const gts_key = "https://gts.example/users/zork/main-key"
+
+fn gts_full_actor() -> String {
+  json.object([
+    #("id", json.string(gts_actor)),
+    #("type", json.string("Person")),
+    #("preferredUsername", json.string("zork")),
+    #("inbox", json.string(gts_actor <> "/inbox")),
+    #(
+      "publicKey",
+      json.object([
+        #("id", json.string(gts_key)),
+        #("owner", json.string(gts_actor)),
+        #("publicKeyPem", json.string("PEM")),
+      ]),
+    ),
+  ])
+  |> json.to_string
+}
+
+/// What GoToSocial serves at the key URL: a stub of the actor.
+fn gts_key_stub(extra: List(#(String, json.Json))) -> String {
+  json.object([
+    #("id", json.string(gts_actor)),
+    #("type", json.string("Person")),
+    #("preferredUsername", json.string("zork")),
+    #(
+      "publicKey",
+      json.object([
+        #("id", json.string(gts_key)),
+        #("owner", json.string(gts_actor)),
+        #("publicKeyPem", json.string("PEM")),
+      ]),
+    ),
+    ..extra
+  ])
+  |> json.to_string
+}
+
+fn gts_lookup(stub: String) {
+  let #(send, requests) =
+    support.recording_send(
+      support.fake_send([
+        #(gts_key, support.json_response(stub)),
+        #(gts_actor, support.json_response(gts_full_actor())),
+      ]),
+    )
+  let ctx = support.test_context_with_send(support.temp_db_path(), send)
+  let assert Ok(a) = remote_actor.by_key_id(ctx, gts_key)
+  assert a.uri == gts_actor
+  assert a.public_key_id == gts_key
+  assert a.inbox == gts_actor <> "/inbox"
+  // The second lookup is answered from the cache.
+  let before = list.length(requests())
+  let assert Ok(b) = remote_actor.by_key_id(ctx, gts_key)
+  assert b.id == a.id
+  assert list.length(requests()) == before
+}
+
+pub fn by_key_id_gotosocial_stub_without_inbox_test() {
+  gts_lookup(gts_key_stub([]))
+}
+
+pub fn by_key_id_gotosocial_stub_with_inbox_test() {
+  gts_lookup(gts_key_stub([#("inbox", json.string(gts_actor <> "/inbox"))]))
+}
+
+pub fn by_key_id_stub_owner_must_list_key_test() {
+  // The stub claims an owner whose document lists another key.
+  let other =
+    json.object([
+      #("id", json.string(gts_actor)),
+      #("type", json.string("Person")),
+      #("preferredUsername", json.string("zork")),
+      #("inbox", json.string(gts_actor <> "/inbox")),
+      #("publicKey", key(gts_actor <> "#other", "PEM")),
+    ])
+    |> json.to_string
+  let ctx =
+    support.test_context_with_send(
+      support.temp_db_path(),
+      support.fake_send([
+        #(gts_key, support.json_response(gts_key_stub([]))),
+        #(gts_actor, support.json_response(other)),
+      ]),
+    )
+  let assert Error(_) = remote_actor.by_key_id(ctx, gts_key)
+}
+
+pub fn by_key_id_refuses_private_key_url_test() {
+  let #(send, requests) =
+    support.recording_send(support.fake_send(mastodon_routes()))
+  let ctx = support.test_context_with_send(support.temp_db_path(), send)
+  let assert Error(_) =
+    remote_actor.by_key_id(ctx, "http://127.0.0.1/users/a#main-key")
+  let assert Error(_) =
+    remote_actor.by_key_id(ctx, "https://10.0.0.1/users/a#main-key")
+  assert requests() == []
+}
+
+pub fn decode_drops_non_web_urls_test() {
+  let body =
+    actor_json([
+      #("inbox", json.string("https://r.example/users/a/inbox")),
+      #("publicKey", key("https://r.example/users/a#k", "PEM")),
+      #("url", json.string("javascript:alert(1)")),
+      #(
+        "icon",
+        json.object([
+          #("type", json.string("Image")),
+          #("url", json.string("javascript:alert(2)")),
+        ]),
+      ),
+      #("image", json.string("vbscript:x")),
+    ])
+  let assert Ok(a) = remote_actor.decode(body)
+  assert a.url == None
+  assert a.avatar_url == None
+  assert a.header_url == None
+}
+
+pub fn decode_keeps_http_urls_test() {
+  let body =
+    actor_json([
+      #("inbox", json.string("https://r.example/users/a/inbox")),
+      #("publicKey", key("https://r.example/users/a#k", "PEM")),
+      #("url", json.string("http://r.example/@a")),
+      #("icon", json.string("https://r.example/a.png")),
+    ])
+  let assert Ok(a) = remote_actor.decode(body)
+  assert a.url == Some("http://r.example/@a")
+  assert a.avatar_url == Some("https://r.example/a.png")
+}

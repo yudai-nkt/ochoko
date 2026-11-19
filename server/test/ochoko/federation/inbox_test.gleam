@@ -9,6 +9,7 @@ import gleam/result
 import gleam/string
 import gleam/time/timestamp
 import ochoko/context.{type Context, Context}
+import ochoko/crypto/rsa
 import ochoko/db
 import ochoko/federation/inbox
 import ochoko/federation/remote_actor
@@ -671,4 +672,124 @@ pub fn delete_actor_cascades_test() {
       "SELECT COUNT(*) FROM remote_actors WHERE uri = '" <> actor_a <> "'",
     )
     == 0
+}
+
+// --- final review fixes -------------------------------------------------------
+
+pub fn private_key_id_401_without_fetching_test() {
+  let path = support.temp_db_path()
+  let #(send, requests) = support.recording_send(support.fake_send(routes()))
+  let ctx = support.test_context_with_send(path, send)
+  let req =
+    support.signed_post(
+      ctx,
+      key_a(),
+      "http://127.0.0.1/users/a#main-key",
+      "/me/inbox",
+      follow("https://r.example/f/1", actor_a),
+    )
+  assert status(inbox.handle(ctx, req)) == 401
+  assert requests() == []
+}
+
+/// An actor document listing two keys, the signing key second.
+fn two_key_actor(uri: String) -> String {
+  let key = fn(id, pem) {
+    json.object([
+      #("id", json.string(id)),
+      #("owner", json.string(uri)),
+      #("publicKeyPem", json.string(pem)),
+    ])
+  }
+  json.object([
+    #("id", json.string(uri)),
+    #("type", json.string("Person")),
+    #("preferredUsername", json.string("a")),
+    #("inbox", json.string(uri <> "/inbox")),
+    #(
+      "publicKey",
+      json.preprocessed_array([
+        key(uri <> "#other", rsa.public_pem(support.test_key())),
+        key(uri <> "#main-key", rsa.public_pem(key_a())),
+      ]),
+    ),
+  ])
+  |> json.to_string
+}
+
+pub fn key_rotation_refetch_selects_signing_key_test() {
+  let path = support.temp_db_path()
+  // Cached: actor A whose main-key is an old key.
+  let old_ctx =
+    support.test_context_with_send(
+      path,
+      support.fake_send([
+        #(
+          actor_a,
+          support.json_response(support.remote_actor_json(
+            actor_a,
+            support.test_key(),
+          )),
+        ),
+      ]),
+    )
+  let assert Ok(_) = remote_actor.get_or_fetch(old_ctx, actor_a)
+  let ctx =
+    support.test_context_with_send(
+      path,
+      support.fake_send([
+        #(actor_a, support.json_response(two_key_actor(actor_a))),
+      ]),
+    )
+  assert status(post(ctx, actor_a, follow("https://r.example/f/1", actor_a)))
+    == 202
+}
+
+pub fn delete_with_stale_cached_key_removes_actor_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let _ =
+    post(ctx, actor_a, create("https://r.example/c/1", actor_a, note_a(n1)))
+  assert count(path, "SELECT COUNT(*) FROM statuses") == 1
+  // Two days later the actor is gone (410) and the cached key is stale.
+  let later =
+    Context(
+      ..ctx,
+      now: fn() { timestamp.from_unix_seconds(1_700_000_000 + 2 * 86_400) },
+      send: fn(_req) { Ok(response.new(410) |> response.set_body("")) },
+    )
+  let delete =
+    activity("https://r.example/d/1", "Delete", actor_a, json.string(actor_a))
+  assert status(post(later, actor_a, delete)) == 202
+  assert count(path, "SELECT COUNT(*) FROM statuses") == 0
+  assert count(
+      path,
+      "SELECT COUNT(*) FROM remote_actors WHERE uri = '" <> actor_a <> "'",
+    )
+    == 0
+}
+
+pub fn stale_key_is_not_used_for_non_delete_test() {
+  let #(path, ctx) = setup()
+  let _ = actor_row_id(ctx, actor_a)
+  let later =
+    Context(
+      ..ctx,
+      now: fn() { timestamp.from_unix_seconds(1_700_000_000 + 2 * 86_400) },
+      send: fn(_req) { Ok(response.new(410) |> response.set_body("")) },
+    )
+  assert status(post(later, actor_a, follow("https://r.example/f/1", actor_a)))
+    == 401
+  assert count(path, "SELECT COUNT(*) FROM followers") == 0
+}
+
+pub fn database_error_during_key_lookup_500_test() {
+  // A database without tables: the key lookup fails on the query.
+  let path = support.unmigrated_db_path()
+  let ctx = support.test_context_with_send(path, support.fake_send(routes()))
+  assert status(post(ctx, actor_a, follow("https://r.example/f/1", actor_a)))
+    == 500
+  let delete =
+    activity("https://r.example/d/1", "Delete", actor_a, json.string(actor_a))
+  assert status(post(ctx, actor_a, delete)) == 500
 }
