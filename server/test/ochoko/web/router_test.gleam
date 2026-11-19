@@ -1,13 +1,11 @@
 import gleam/http
-import gleam/time/timestamp
-import ochoko/context.{type Context, Context}
+import ochoko/context.{type Context}
 import ochoko/web/router
 import support
 import wisp/simulate
 
 fn test_ctx() -> Context {
-  let c = support.test_config()
-  Context(config: c, db_path: ":memory:", now: timestamp.system_time)
+  support.test_context(":memory:")
 }
 
 pub fn health_test() {

@@ -1,7 +1,13 @@
 import gleam/time/timestamp.{type Timestamp}
 import ochoko/config.{type Config}
+import ochoko/crypto/rsa
 
-/// Application context. `send` and `private_key` are added by later tasks.
+/// Application context. `send` is added by later tasks.
 pub type Context {
-  Context(config: Config, db_path: String, now: fn() -> Timestamp)
+  Context(
+    config: Config,
+    db_path: String,
+    now: fn() -> Timestamp,
+    private_key: rsa.PrivateKey,
+  )
 }
