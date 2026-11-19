@@ -67,6 +67,11 @@ Once the server matures, build an own client so the project becomes full-stack.
 - `ochoko.ynkt.me` itself must also answer WebFinger and return
   `subject: acct:yudai@ynkt.me`, because Mastodon does a reverse WebFinger
   lookup against the actor's host to verify the handle.
+- `/me` serves ActivityPub JSON only. The human-facing profile page is the
+  actor's `url` property, which is independent of `id` and may change later
+  (e.g. `https://ochoko.ynkt.me/profile`, a future client page, or
+  `https://ynkt.me/`). Browsers requesting `/me` with an HTML `Accept` header
+  may be redirected to it.
 - Actor IDs and object IDs are permanent once federated. The host, handle and
   URL scheme must be treated as immutable after first deployment.
 
@@ -252,6 +257,7 @@ does not.
 - Streaming API.
 - Likes and boosts (receiving, then sending).
 - Block, mute, domain block.
+- HTML profile page at the actor's `url` (e.g. `/profile`).
 - Followers-only and direct posting, together with authorized fetch (secure
   mode) and an instance/server actor for signing its own fetches.
 - NodeInfo, outbox contents.
