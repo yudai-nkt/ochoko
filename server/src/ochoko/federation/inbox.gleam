@@ -330,8 +330,8 @@ fn object_iri(body: String) -> option.Option(String) {
 }
 
 /// For a `Create`, the note it carries, embedded or fetched by IRI. A note
-/// is fetched only for an accepted followee, so that unsolicited activities
-/// cannot make us fetch arbitrary URLs.
+/// is fetched only from the signer's own host and only for an accepted
+/// followee, so that activities cannot make us fetch arbitrary URLs.
 fn resolve_note(
   ctx: Context,
   signer: RemoteActor,
@@ -346,7 +346,9 @@ fn resolve_note(
         Ok(object) ->
           case decode.run(object, decode.string) {
             Ok(iri) ->
-              case is_accepted_followee(ctx, signer) {
+              case
+                same_host(iri, signer.uri) && is_accepted_followee(ctx, signer)
+              {
                 True -> fetch_note(ctx, iri)
                 False -> None
               }

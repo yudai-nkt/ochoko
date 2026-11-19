@@ -793,3 +793,21 @@ pub fn database_error_during_key_lookup_500_test() {
     activity("https://r.example/d/1", "Delete", actor_a, json.string(actor_a))
   assert status(post(ctx, actor_a, delete)) == 500
 }
+
+pub fn create_with_iri_object_on_other_host_not_fetched_test() {
+  let #(path, ctx) = setup()
+  let elsewhere = "https://elsewhere.example/notes/1"
+  let #(send, requests) =
+    support.recording_send(
+      support.fake_send([
+        #(elsewhere, support.json_response(json.to_string(note_a(elsewhere)))),
+        ..routes()
+      ]),
+    )
+  let ctx = Context(..ctx, send:)
+  let _ = follow_accepted(path, ctx, actor_a)
+  let body = create("https://r.example/c/1", actor_a, json.string(elsewhere))
+  assert status(post(ctx, actor_a, body)) == 202
+  assert get_status(path, elsewhere) == None
+  assert !list.any(requests(), fn(r) { r.host == "elsewhere.example" })
+}
