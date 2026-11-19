@@ -5,9 +5,12 @@ import gleam/string
 import ochoko/api/accounts
 import ochoko/api/apps
 import ochoko/api/instance
+import ochoko/api/notifications
 import ochoko/api/oauth
 import ochoko/api/search
 import ochoko/api/statuses
+import ochoko/api/stubs
+import ochoko/api/timelines
 import ochoko/context.{type Context}
 import ochoko/web/federation
 import wisp.{type Request, type Response}
@@ -51,10 +54,17 @@ pub fn handle_request(req: Request, ctx: Context) -> Response {
         _ -> statuses.show(req, ctx, id)
       }
     ["api", "v1", "statuses", id, "context"] -> statuses.context(req, ctx, id)
+    ["api", "v1", "timelines", "home"] -> timelines.home(req, ctx)
+    ["api", "v1", "notifications"] -> notifications.index(req, ctx)
+    ["api", "v1", "notifications", "clear"] -> notifications.clear(req, ctx)
+    ["api", "v1", "notifications", id] -> notifications.show(req, ctx, id)
+    ["api", "v1", "notifications", id, "dismiss"] ->
+      notifications.dismiss(req, ctx, id)
     ["statuses", id] -> federation.status(req, ctx, id)
     ["oauth", "authorize"] -> oauth.authorize(req, ctx)
     ["oauth", "token"] -> oauth.token(req, ctx)
     ["oauth", "revoke"] -> oauth.revoke(req, ctx)
+    ["api", ..] -> stubs.handle(req, ctx)
     _ -> wisp.not_found()
   }
 }

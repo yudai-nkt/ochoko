@@ -5,7 +5,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
-import gleam/string
 import gleam/time/timestamp.{type Timestamp}
 import ochoko/config.{type Config}
 import ochoko/federation/note.{type Attachment, type InboundNote, Attachment}
@@ -375,42 +374,40 @@ pub fn list_by_actor(
   page: Page,
 ) -> Result(List(StatusRow), sqlight.Error) {
   let #(actor_sql, actor_args) = actor_clause(actor_id)
-  let bounds = [
-    #("id < ?", page.max_id),
-    #("id > ?", page.since_id),
-    #("id > ?", page.min_id),
-  ]
-  let #(bound_sql, bound_args) =
-    list.fold(bounds, #([], []), fn(acc, bound) {
-      case bound.1 {
-        Some(n) -> #([" AND " <> bound.0, ..acc.0], [sqlight.int(n), ..acc.1])
-        None -> acc
-      }
-    })
-  let ascending = option.is_some(page.min_id)
+  let #(bound_sql, bound_args) = page.bounds(page)
   use rows <- result.try(sqlight.query(
     "SELECT "
       <> select_columns
       <> " FROM statuses WHERE deleted_at IS NULL AND visibility != 'direct' AND "
       <> actor_sql
-      <> string.concat(list.reverse(bound_sql))
-      <> case ascending {
-      True -> " ORDER BY id ASC LIMIT ?"
-      False -> " ORDER BY id DESC LIMIT ?"
-    },
+      <> bound_sql
+      <> page.order_limit(page),
     on: conn,
-    with: list.flatten([
-      actor_args,
-      list.reverse(bound_args),
-      [sqlight.int(page.limit)],
-    ]),
+    with: list.flatten([actor_args, bound_args, [sqlight.int(page.limit)]]),
     expecting: status_decoder(),
   ))
-  let rows = case ascending {
-    True -> list.reverse(rows)
-    False -> rows
-  }
-  load_attachments(conn, rows)
+  load_attachments(conn, page.finish(page, rows))
+}
+
+/// A page of the home timeline, newest first: our own statuses and those of
+/// accounts whose follow was accepted, except direct ones and deleted ones.
+pub fn home_timeline(
+  conn: sqlight.Connection,
+  page: Page,
+) -> Result(List(StatusRow), sqlight.Error) {
+  let #(bound_sql, bound_args) = page.bounds(page)
+  use rows <- result.try(sqlight.query(
+    "SELECT " <> select_columns <> " FROM statuses WHERE deleted_at IS NULL
+         AND visibility IN ('public', 'unlisted', 'private')
+         AND (actor_id IS NULL OR actor_id IN
+              (SELECT actor_id FROM following WHERE state = 'accepted'))" <> bound_sql <> page.order_limit(
+      page,
+    ),
+    on: conn,
+    with: list.flatten([bound_args, [sqlight.int(page.limit)]]),
+    expecting: status_decoder(),
+  ))
+  load_attachments(conn, page.finish(page, rows))
 }
 
 fn attachments_of(
