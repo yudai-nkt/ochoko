@@ -4,6 +4,16 @@ A single-user ActivityPub server written in Gleam (Erlang target), with a
 `shared` package holding Mastodon API types that compile to both Erlang and
 JavaScript.
 
+## Overview
+
+ochoko serves one account (for example `@yudai@ynkt.me`) with ActivityPub
+federation, the subset of the Mastodon client API that web clients such as Elk
+need, an OAuth login, SQLite storage and a background delivery queue. Run it
+with `ochoko serve --config ochoko.toml` behind a TLS-terminating reverse proxy.
+
+- [docs/deployment.md](docs/deployment.md): build, configuration, reverse proxy, WebFinger, systemd, backups
+- [docs/elk-smoke-test.md](docs/elk-smoke-test.md): manual end-to-end checklist with Elk (not yet run)
+
 ## Layout
 
 - `server/` - the ActivityPub / Mastodon API server (Erlang target)

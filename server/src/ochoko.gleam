@@ -6,6 +6,7 @@ import gleam/io
 import gleam/option.{Some}
 import gleam/result
 import gleam/time/timestamp
+import ochoko/app
 import ochoko/cli
 import ochoko/config
 import ochoko/context.{Context}
@@ -32,9 +33,13 @@ pub fn main() -> Nil {
           halt(1)
         }
         Ok(c) ->
-          io.println(
-            "config loaded for " <> config.acct(c) <> "; server not wired yet",
-          )
+          case app.start(c) {
+            Ok(Nil) -> Nil
+            Error(msg) -> {
+              io.println_error("error: " <> msg)
+              halt(1)
+            }
+          }
       }
     Ok(cli.Profile(path, display_name, note, avatar_url)) ->
       case run_profile(path, display_name, note, avatar_url) {
