@@ -1,7 +1,7 @@
 # ochoko — Design
 
 Date: 2026-11-19
-Status: Awaiting approval
+Status: Approved
 
 ## Intent
 
@@ -55,7 +55,7 @@ Once the server matures, build an own client so the project becomes full-stack.
 | Account handle (what people see/type) | `@yudai@ynkt.me` |
 | Account domain (WebFinger `acct:` domain) | `ynkt.me` |
 | Server host | `ochoko.ynkt.me` |
-| Actor ID | `https://ochoko.ynkt.me/users/yudai` |
+| Actor ID | `https://ochoko.ynkt.me/me` |
 
 - Account domain and server host are **separate configuration values**
   (Mastodon's `LOCAL_DOMAIN` / `WEB_DOMAIN` split).
