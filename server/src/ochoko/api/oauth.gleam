@@ -20,6 +20,7 @@ import ochoko/api/apps.{oob}
 import ochoko/api/params.{type Params}
 import ochoko/context.{type Context}
 import ochoko/db
+import ochoko/login_lock
 import ochoko/store/oauth.{type App}
 import wisp.{type Request, type Response}
 
@@ -52,17 +53,26 @@ pub fn authorize(req: Request, ctx: Context) -> Response {
   }
 }
 
+/// Verifies the password. Verifications are serialized through
+/// `login_lock` (the failure delay is served while holding it, which also
+/// throttles guessing); an attempt that cannot get its turn gets 503.
 fn login(ctx: Context, authz: Authz, password: String) -> Response {
-  let ok = case argus.verify(ctx.config.password_hash, password) {
-    Ok(True) -> True
-    Ok(False) | Error(_) -> False
-  }
-  case ok {
-    False -> {
-      process.sleep(ctx.login_failure_delay_ms)
-      login_page(authz, Some("Incorrect password."), 401)
-    }
-    True -> {
+  let verified =
+    login_lock.run(login_lock.wait_ms, fn() {
+      case argus.verify(ctx.config.password_hash, password) {
+        Ok(True) -> True
+        Ok(False) | Error(_) -> {
+          process.sleep(ctx.login_failure_delay_ms)
+          False
+        }
+      }
+    })
+  case verified {
+    Error(Nil) ->
+      login_page(authz, Some("Too many login attempts; try again."), 503)
+      |> response.set_header("retry-after", "1")
+    Ok(False) -> login_page(authz, Some("Incorrect password."), 401)
+    Ok(True) -> {
       let code = oauth.random_secret()
       let stored =
         db.with_connection(ctx.db_path, oauth.insert_code(

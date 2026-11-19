@@ -1,4 +1,5 @@
 import gleam/dynamic/decode
+import gleam/erlang/process
 import gleam/http
 import gleam/http/response
 import gleam/json
@@ -11,6 +12,7 @@ import gleam/uri
 import ochoko/api/auth
 import ochoko/context.{type Context, Context}
 import ochoko/db
+import ochoko/login_lock
 import ochoko/store/oauth
 import ochoko/web/router
 import sqlight
@@ -660,4 +662,48 @@ pub fn tokens_stored_hashed_test() {
   assert like("oauth_tokens", "token_hash", token) == []
   assert like("oauth_codes", "code_hash", code) == []
   assert column("SELECT code_hash FROM oauth_codes") == []
+}
+
+// --- login concurrency ---------------------------------------------------------
+
+/// Starts a process that takes the login lock and holds it until the
+/// returned subject is sent `Nil`; `on_release` runs before letting go.
+fn hold_login_lock(on_release: fn() -> Nil) -> process.Subject(Nil) {
+  let started = process.new_subject()
+  process.spawn(fn() {
+    login_lock.run(0, fn() {
+      let release = process.new_subject()
+      process.send(started, release)
+      let _ = process.receive(release, 10_000)
+      on_release()
+    })
+  })
+  let assert Ok(release) = process.receive(started, 5000)
+  release
+}
+
+pub fn concurrent_login_is_turned_away_test() {
+  let #(_, ctx) = setup()
+  let #(client_id, _) = register(ctx, "read write")
+  let release = hold_login_lock(fn() { Nil })
+  let res = authorize_form(ctx, login_fields(client_id, support.test_password))
+  assert res.status == 503
+  assert response.get_header(res, "retry-after") == Ok("1")
+  process.send(release, Nil)
+  // Once the lock is free the next attempt verifies normally.
+  let res = authorize_form(ctx, login_fields(client_id, support.test_password))
+  assert res.status == 302
+}
+
+pub fn login_lock_serializes_test() {
+  // A second holder runs only after the first has finished.
+  let log = process.new_subject()
+  let release = hold_login_lock(fn() { process.send(log, "first done") })
+  process.spawn(fn() {
+    let _ = login_lock.run(5000, fn() { process.send(log, "second ran") })
+    Nil
+  })
+  process.send(release, Nil)
+  assert process.receive(log, 5000) == Ok("first done")
+  assert process.receive(log, 5000) == Ok("second ran")
 }
