@@ -7,11 +7,11 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
-import ochoko/api/accounts
 import ochoko/api/auth
 import ochoko/api/pagination
 import ochoko/api/params
 import ochoko/api/present
+import ochoko/api/respond
 import ochoko/api/timelines
 import ochoko/context.{type Context}
 import ochoko/db
@@ -59,9 +59,9 @@ pub fn index(req: Request, ctx: Context) -> Response {
       False -> Ok([])
     }
     case rows {
-      Error(_) -> wisp.internal_server_error()
+      Error(e) -> respond.server_error(e)
       Ok(rows) ->
-        accounts.json_ok(
+        respond.json_ok(
           rows
           |> list.filter_map(to_entity(ctx, conn, _))
           |> json.array(mastodon.notification_to_json),
@@ -90,8 +90,8 @@ pub fn show(req: Request, ctx: Context, id: String) -> Response {
         }
       })
     case found {
-      Ok(n) -> accounts.json_ok(mastodon.notification_to_json(n))
-      Error(Nil) -> accounts.not_found()
+      Ok(n) -> respond.json_ok(mastodon.notification_to_json(n))
+      Error(Nil) -> respond.not_found()
     }
   })
 }
@@ -101,8 +101,8 @@ pub fn clear(req: Request, ctx: Context) -> Response {
   use <- auth.require_user(ctx, req)
   db.with_connection(ctx.db_path, fn(conn) {
     case notifications.clear(conn) {
-      Ok(Nil) -> accounts.json_ok(json.object([]))
-      Error(_) -> wisp.internal_server_error()
+      Ok(Nil) -> respond.json_ok(json.object([]))
+      Error(e) -> respond.server_error(e)
     }
   })
 }
@@ -112,11 +112,11 @@ pub fn dismiss(req: Request, ctx: Context, id: String) -> Response {
   use <- auth.require_user(ctx, req)
   db.with_connection(ctx.db_path, fn(conn) {
     case int.parse(id) {
-      Error(Nil) -> accounts.not_found()
+      Error(Nil) -> respond.not_found()
       Ok(n) ->
         case notifications.dismiss(conn, n) {
-          Ok(Nil) -> accounts.json_ok(json.object([]))
-          Error(_) -> wisp.internal_server_error()
+          Ok(Nil) -> respond.json_ok(json.object([]))
+          Error(e) -> respond.server_error(e)
         }
     }
   })

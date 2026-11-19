@@ -18,10 +18,12 @@ import gleam/time/timestamp
 import gleam/uri
 import ochoko/api/apps.{oob}
 import ochoko/api/params.{type Params}
+import ochoko/api/respond
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/login_lock
 import ochoko/store/oauth.{type App}
+import sqlight
 import wisp.{type Request, type Response}
 
 const code_lifetime_seconds = 600
@@ -85,7 +87,7 @@ fn login(ctx: Context, authz: Authz, password: String) -> Response {
           timestamp.add(ctx.now(), duration.seconds(code_lifetime_seconds)),
         ))
       case stored {
-        Error(_) -> wisp.internal_server_error()
+        Error(e) -> page_server_error(e)
         Ok(Nil) ->
           case authz.redirect_uri == oob {
             True -> oob_page(code)
@@ -132,7 +134,7 @@ fn validate_authz(
   case
     db.with_connection(ctx.db_path, oauth.get_app_by_client_id(_, client_id))
   {
-    Error(_) -> wisp.internal_server_error()
+    Error(e) -> page_server_error(e)
     Ok(None) -> error_page("Unknown application.")
     Ok(Some(app)) -> {
       let redirect_uri = case params.get(p, "redirect_uri") {
@@ -248,6 +250,12 @@ fn html_page(
   |> response.set_header("cache-control", "no-store")
   |> response.set_header("referrer-policy", "no-referrer")
   |> wisp.string_body(html)
+}
+
+/// For the HTML pages: logs the database error and answers a plain 500.
+fn page_server_error(e: sqlight.Error) -> Response {
+  wisp.log_error("oauth: database error: " <> e.message)
+  wisp.internal_server_error()
 }
 
 fn error_page(message: String) -> Response {
@@ -386,7 +394,7 @@ fn exchange_code(ctx: Context, app: App, p: Params) -> Response {
       now,
     ))
   case taken {
-    Error(_) -> wisp.internal_server_error()
+    Error(e) -> respond.server_error(e)
     Ok(None) -> invalid("The authorization code is invalid or expired.")
     Ok(Some(code)) ->
       case
@@ -452,7 +460,7 @@ fn issue_token(
       now,
     ))
   {
-    Error(_) -> wisp.internal_server_error()
+    Error(e) -> respond.server_error(e)
     Ok(token) -> {
       let #(created_at, _) = timestamp.to_unix_seconds_and_nanoseconds(now)
       json.object([
@@ -507,7 +515,7 @@ fn authenticate_client(
         False -> invalid_client()
       }
     Ok(None) -> invalid_client()
-    Error(_) -> wisp.internal_server_error()
+    Error(e) -> respond.server_error(e)
   }
 }
 

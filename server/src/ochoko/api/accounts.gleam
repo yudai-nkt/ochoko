@@ -13,6 +13,7 @@ import ochoko/api/auth
 import ochoko/api/pagination
 import ochoko/api/params
 import ochoko/api/present
+import ochoko/api/respond.{json_ok, not_found, server_error}
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/federation/activities
@@ -30,25 +31,6 @@ import wisp.{type Request, type Response}
 type Target {
   Local
   Remote(RemoteActor)
-}
-
-pub fn json_ok(body: json.Json) -> Response {
-  wisp.json_response(json.to_string(body), 200)
-}
-
-pub fn error_response(message: String, status: Int) -> Response {
-  wisp.json_response(
-    json.to_string(mastodon.error_to_json(mastodon.Error(message, None))),
-    status,
-  )
-}
-
-pub fn not_found() -> Response {
-  error_response("Record not found", 404)
-}
-
-fn server_error(_: sqlight.Error) -> Response {
-  wisp.internal_server_error()
 }
 
 fn find_target(conn: sqlight.Connection, id: String) -> Result(Target, Nil) {
@@ -285,7 +267,7 @@ fn remote_action(
   use <- auth.require_user(ctx, req)
   use conn, target <- with_target(ctx, id)
   case target {
-    Local -> error_response("Validation failed: can't target yourself", 422)
+    Local -> respond.unprocessable("Validation failed: can't target yourself")
     Remote(actor) ->
       case action(conn, actor) {
         Error(e) -> server_error(e)

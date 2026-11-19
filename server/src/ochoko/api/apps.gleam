@@ -9,6 +9,7 @@ import gleam/string
 import gleam/uri
 import ochoko/api/auth
 import ochoko/api/params
+import ochoko/api/respond
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/store/oauth
@@ -30,11 +31,11 @@ pub fn create(req: Request, ctx: Context) -> Response {
     w -> Some(w)
   }
   case name, uris {
-    "", _ -> unprocessable("client_name is required")
-    _, [] -> unprocessable("redirect_uris is required")
+    "", _ -> respond.unprocessable("client_name is required")
+    _, [] -> respond.unprocessable("redirect_uris is required")
     _, _ ->
       case list.all(uris, valid_redirect_uri) {
-        False -> unprocessable("redirect_uris contains an invalid URI")
+        False -> respond.unprocessable("redirect_uris contains an invalid URI")
         True -> {
           let created =
             db.with_connection(ctx.db_path, oauth.create_app(
@@ -46,7 +47,7 @@ pub fn create(req: Request, ctx: Context) -> Response {
               ctx.now(),
             ))
           case created {
-            Error(_) -> wisp.internal_server_error()
+            Error(e) -> respond.server_error(e)
             Ok(app) ->
               json.object([
                 #("id", json.string(int.to_string(app.id))),
@@ -77,7 +78,8 @@ pub fn verify_credentials(req: Request, ctx: Context) -> Response {
       ])
       |> json.to_string
       |> wisp.json_response(200)
-    _ -> wisp.internal_server_error()
+    Ok(None) -> respond.internal_error("token of a missing app")
+    Error(e) -> respond.server_error(e)
   }
 }
 
@@ -107,10 +109,4 @@ fn valid_redirect_uri(u: String) -> Bool {
         Error(Nil) -> False
       }
   }
-}
-
-fn unprocessable(msg: String) -> Response {
-  json.object([#("error", json.string(msg))])
-  |> json.to_string
-  |> wisp.json_response(422)
 }

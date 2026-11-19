@@ -1,9 +1,9 @@
 //// Bearer-token authentication for the Mastodon API.
 
 import gleam/http/request
-import gleam/json
 import gleam/option.{None, Some}
 import gleam/string
+import ochoko/api/respond
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/store/oauth
@@ -76,10 +76,5 @@ fn bearer_token(req: Request) -> Result(String, Nil) {
 }
 
 fn invalid_token() -> Response {
-  wisp.json_response(
-    json.to_string(
-      json.object([#("error", json.string("The access token is invalid"))]),
-    ),
-    401,
-  )
+  respond.error("The access token is invalid", 401)
 }

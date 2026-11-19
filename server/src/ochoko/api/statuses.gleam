@@ -9,10 +9,10 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import ochoko/api/accounts.{error_response, json_ok, not_found}
 import ochoko/api/auth
 import ochoko/api/params.{type Params}
 import ochoko/api/present
+import ochoko/api/respond.{json_ok, not_found, server_error}
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/federation/activities
@@ -26,12 +26,8 @@ import wisp.{type Request, type Response}
 /// Maximum length of a status, in graphemes (as advertised by the instance).
 const max_characters = 500
 
-fn server_error(_: sqlight.Error) -> Response {
-  wisp.internal_server_error()
-}
-
 fn invalid(message: String) -> Response {
-  error_response("Validation failed: " <> message, 422)
+  respond.unprocessable("Validation failed: " <> message)
 }
 
 /// The presented status. Our own statuses always have a loadable author.

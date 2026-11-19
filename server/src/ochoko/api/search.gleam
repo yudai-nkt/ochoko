@@ -12,6 +12,7 @@ import ochoko/api/auth
 import ochoko/api/pagination
 import ochoko/api/params
 import ochoko/api/present
+import ochoko/api/respond
 import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/db
@@ -52,7 +53,7 @@ pub fn search(req: Request, ctx: Context) -> Response {
   }
   mastodon.SearchResults(accounts:, statuses: [], hashtags: [])
   |> mastodon.search_results_to_json
-  |> accounts.json_ok
+  |> respond.json_ok
 }
 
 type Found {

@@ -9,6 +9,7 @@ import gleam/option.{None, Some}
 import ochoko/api/auth
 import ochoko/api/pagination
 import ochoko/api/present
+import ochoko/api/respond
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/store/statuses
@@ -44,7 +45,7 @@ pub fn home(req: Request, ctx: Context) -> Response {
   let page = pagination.parse(req)
   db.with_connection(ctx.db_path, fn(conn) {
     case statuses.home_timeline(conn, page) {
-      Error(_) -> wisp.internal_server_error()
+      Error(e) -> respond.server_error(e)
       Ok(rows) ->
         wisp.json_response(
           rows

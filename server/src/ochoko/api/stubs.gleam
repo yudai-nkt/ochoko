@@ -5,6 +5,7 @@ import gleam/http.{type Method, Get, Post}
 import gleam/list
 import gleam/string
 import ochoko/api/auth
+import ochoko/api/respond
 import ochoko/context.{type Context}
 import wisp.{type Request, type Response}
 
@@ -64,7 +65,8 @@ fn matches(pattern: List(String), path: List(String)) -> Bool {
   }
 }
 
-/// Answers the request from the stub table, or 404 if no stub matches.
+/// Answers the request from the stub table, or a JSON 404 if no stub
+/// matches (this also covers every unknown `/api/*` path).
 pub fn handle(req: Request, ctx: Context) -> Response {
   let path = wisp.path_segments(req)
   let found =
@@ -76,7 +78,7 @@ pub fn handle(req: Request, ctx: Context) -> Response {
       )
     })
   case found {
-    Error(Nil) -> wisp.not_found()
+    Error(Nil) -> respond.not_found()
     Ok(#(_, _, body)) -> {
       use <- auth.require_user(ctx, req)
       let status = case string.contains(body, "\"error\"") {
