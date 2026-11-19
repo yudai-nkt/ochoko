@@ -1,12 +1,17 @@
 import argv
+import gleam/http/response.{type Response}
+import gleam/int
 import gleam/io
 import gleam/option.{Some}
 import gleam/result
 import gleam/string
+import gleam/time/timestamp
 import ochoko/cli
 import ochoko/config
+import ochoko/context.{Context}
 import ochoko/crypto/rsa
 import ochoko/db
+import ochoko/http_client
 import ochoko/store/profile
 import simplifile
 import sqlight
@@ -52,9 +57,47 @@ pub fn main() -> Nil {
         }
         Ok(public_pem) -> io.print(public_pem)
       }
+    Ok(cli.Fetch(path, url)) ->
+      case run_fetch(path, url) {
+        Error(msg) -> {
+          io.println_error("error: " <> msg)
+          halt(1)
+        }
+        Ok(res) -> {
+          io.println("HTTP " <> int.to_string(res.status))
+          io.println(res.body)
+        }
+      }
     Ok(command) ->
       io.println(string.inspect(command) <> ": not implemented yet")
   }
+}
+
+fn run_fetch(
+  config_path: String,
+  url: String,
+) -> Result(Response(String), String) {
+  use c <- result.try(config.load(config_path))
+  use pem <- result.try(
+    simplifile.read(c.private_key_path)
+    |> result.map_error(fn(e) {
+      c.private_key_path <> ": " <> simplifile.describe_error(e)
+    }),
+  )
+  use key <- result.try(
+    rsa.private_from_pem(pem)
+    |> result.replace_error(c.private_key_path <> ": invalid private key"),
+  )
+  let ctx =
+    Context(
+      config: c,
+      db_path: c.database_path,
+      now: timestamp.system_time,
+      private_key: key,
+      send: http_client.httpc_send(10_000),
+    )
+  http_client.signed_get(ctx, url)
+  |> result.map_error(http_client.describe_error)
 }
 
 fn run_keygen(out_path: String) -> Result(String, String) {
