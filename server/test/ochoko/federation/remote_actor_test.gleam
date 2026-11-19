@@ -1,5 +1,6 @@
 import gleam/dynamic/decode
 import gleam/http/request
+import gleam/http/response
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -494,4 +495,118 @@ pub fn decode_keeps_http_urls_test() {
   let assert Ok(a) = remote_actor.decode(body)
   assert a.url == Some("http://r.example/@a")
   assert a.avatar_url == Some("https://r.example/a.png")
+}
+
+// --- WebFinger redirects ---------------------------------------------------------
+
+fn redirect(to: String) {
+  response.new(301)
+  |> response.set_header("location", to)
+  |> response.set_body("")
+}
+
+fn alice_routes(first_hop) {
+  let owner = "https://social.example/users/alice"
+  let webfinger =
+    "{\"links\":[{\"rel\":\"self\",\"type\":\"application/activity+json\",\"href\":\""
+    <> owner
+    <> "\"}]}"
+  let actor =
+    json.object([
+      #("id", json.string(owner)),
+      #("type", json.string("Person")),
+      #("preferredUsername", json.string("alice")),
+      #("inbox", json.string(owner <> "/inbox")),
+      #("publicKey", key(owner <> "#main-key", "PEM")),
+    ])
+    |> json.to_string
+  [
+    #(
+      "https://example.com/.well-known/webfinger?resource=acct:alice@example.com",
+      first_hop,
+    ),
+    #(
+      "https://social.example/.well-known/webfinger?resource=acct:alice@example.com",
+      support.json_response(webfinger),
+    ),
+    #(owner, support.json_response(actor)),
+  ]
+}
+
+pub fn resolve_acct_follows_redirect_test() {
+  let routes =
+    alice_routes(redirect(
+      "https://social.example/.well-known/webfinger?resource=acct:alice@example.com",
+    ))
+  let ctx =
+    support.test_context_with_send(
+      support.temp_db_path(),
+      support.fake_send(routes),
+    )
+  let assert Ok(a) = remote_actor.resolve_acct(ctx, "alice", "example.com")
+  assert a.uri == "https://social.example/users/alice"
+  assert a.domain == "example.com"
+}
+
+pub fn resolve_acct_follows_relative_redirect_test() {
+  let routes = [
+    #(
+      "https://example.com/wf",
+      redirect(
+        "https://social.example/.well-known/webfinger?resource=acct:alice@example.com",
+      ),
+    ),
+    ..alice_routes(redirect("/wf"))
+  ]
+  let ctx =
+    support.test_context_with_send(
+      support.temp_db_path(),
+      support.fake_send(routes),
+    )
+  let assert Ok(_) = remote_actor.resolve_acct(ctx, "alice", "example.com")
+}
+
+pub fn resolve_acct_refuses_redirect_to_private_host_test() {
+  let #(send, requests) =
+    support.recording_send(
+      support.fake_send(alice_routes(redirect("https://127.0.0.1/wf"))),
+    )
+  let ctx = support.test_context_with_send(support.temp_db_path(), send)
+  let assert Error(_) = remote_actor.resolve_acct(ctx, "alice", "example.com")
+  assert list.length(requests()) == 1
+}
+
+pub fn resolve_acct_refuses_http_redirect_test() {
+  let ctx =
+    support.test_context_with_send(
+      support.temp_db_path(),
+      support.fake_send(
+        alice_routes(redirect(
+          "http://social.example/.well-known/webfinger?resource=acct:alice@example.com",
+        )),
+      ),
+    )
+  let assert Error(_) = remote_actor.resolve_acct(ctx, "alice", "example.com")
+}
+
+pub fn resolve_acct_stops_after_three_redirects_test() {
+  // a -> b -> c -> d -> e: the fourth redirect is not followed.
+  let hop = fn(n) { "https://h" <> n <> ".example/wf" }
+  let routes = [
+    #(hop("1"), redirect(hop("2"))),
+    #(hop("2"), redirect(hop("3"))),
+    #(
+      hop("3"),
+      redirect(
+        "https://social.example/.well-known/webfinger?resource=acct:alice@example.com",
+      ),
+    ),
+    ..alice_routes(redirect(hop("1")))
+  ]
+  let ctx =
+    support.test_context_with_send(
+      support.temp_db_path(),
+      support.fake_send(routes),
+    )
+  let assert Error(_) = remote_actor.resolve_acct(ctx, "alice", "example.com")
 }
