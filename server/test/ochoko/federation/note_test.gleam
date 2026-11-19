@@ -154,3 +154,30 @@ pub fn content_map_fallback_test() {
   assert n.content_html == "<p>konnichiwa</p>"
   assert n.language == Some("ja")
 }
+
+// --- URL schemes ---------------------------------------------------------------
+
+pub fn non_web_urls_are_dropped_test() {
+  let body =
+    "{\"id\":\"https://r.example/n/1\",\"type\":\"Note\",\"attributedTo\":\"https://r.example/users/a\",\"content\":\"hi\","
+    <> "\"url\":\"javascript:alert(1)\","
+    <> "\"inReplyTo\":\" JavaScript:alert(2)\","
+    <> "\"attachment\":["
+    <> "{\"type\":\"Document\",\"url\":\"javascript:alert(3)\",\"mediaType\":\"image/png\"},"
+    <> "{\"type\":\"Document\",\"url\":\"data:image/png;base64,AAAA\"},"
+    <> "{\"type\":\"Document\",\"url\":\" HTTPS://r.example/a.png \"}"
+    <> "]}"
+  let assert Ok(n) = parse(body)
+  assert n.url == None
+  assert n.in_reply_to == None
+  let assert [a] = n.attachments
+  assert a.url == "HTTPS://r.example/a.png"
+}
+
+pub fn first_web_url_is_taken_test() {
+  let body =
+    "{\"id\":\"https://r.example/n/1\",\"type\":\"Note\",\"attributedTo\":\"https://r.example/users/a\",\"content\":\"hi\","
+    <> "\"url\":[\"javascript:x\",{\"href\":\"https://r.example/@a/1\"}]}"
+  let assert Ok(n) = parse(body)
+  assert n.url == Some("https://r.example/@a/1")
+}

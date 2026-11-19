@@ -7,6 +7,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/uri
 
 /// An IRI given as `"x"`, `{"id": "x"}` or `{"href": "x"}`.
 pub fn iri() -> Decoder(String) {
@@ -25,6 +26,27 @@ pub fn iri_list() -> Decoder(List(String)) {
   ])
 }
 
+/// `s` when it is an absolute `http` or `https` URL with a host (scheme
+/// compared case-insensitively, surrounding whitespace trimmed); remote URLs
+/// end up as links and images in clients, so any other scheme is dropped.
+pub fn web_url(s: String) -> Option(String) {
+  let s = string.trim(s)
+  case uri.parse(s) {
+    Ok(uri.Uri(scheme: Some(scheme), host: Some(host), ..)) if host != "" ->
+      case string.lowercase(scheme) {
+        "http" | "https" -> Some(s)
+        _ -> None
+      }
+    _ -> None
+  }
+}
+
+/// The first of `urls` that is a `web_url`.
+pub fn first_web_url(urls: List(String)) -> Option(String) {
+  list.find_map(urls, fn(u) { web_url(u) |> option.to_result(Nil) })
+  |> option.from_result
+}
+
 /// `"Note"` or `["Note", ...]`.
 pub fn type_names() -> Decoder(List(String)) {
   decode.one_of(decode.list(decode.string), [
@@ -33,16 +55,16 @@ pub fn type_names() -> Decoder(List(String)) {
 }
 
 /// An image given as `"u"`, `{"url": "u" | {"href": "u"}}` or an array of
-/// those, of which the first usable one is taken.
+/// those, of which the first usable one is taken. Only `web_url`s count.
 pub fn image_url() -> Decoder(Option(String)) {
   decode.recursive(fn() {
-    decode.one_of(decode.string |> decode.map(Some), [
+    decode.one_of(decode.string |> decode.map(web_url), [
       decode.list(image_url())
         |> decode.map(fn(items) {
           items |> option.values |> list.first |> option.from_result
         }),
       decode.optionally_at(["url"], [], iri_list())
-        |> decode.map(fn(urls) { list.first(urls) |> option.from_result }),
+        |> decode.map(first_web_url),
       decode.success(None),
     ])
   })

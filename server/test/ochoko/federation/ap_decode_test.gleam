@@ -123,3 +123,22 @@ pub fn fixture_note_types_test() {
     )
     == ["Note"]
 }
+
+pub fn web_url_test() {
+  assert ap_decode.web_url("https://a.example/x") == Some("https://a.example/x")
+  assert ap_decode.web_url(" HTTP://a.example/ ") == Some("HTTP://a.example/")
+  assert ap_decode.web_url("javascript:alert(1)") == None
+  assert ap_decode.web_url(" JavaScript:alert(1)") == None
+  assert ap_decode.web_url("data:text/html,x") == None
+  assert ap_decode.web_url("//a.example/x") == None
+  assert ap_decode.web_url("https://") == None
+}
+
+pub fn image_url_skips_non_web_test() {
+  assert parse("\"javascript:x\"", ap_decode.image_url()) == None
+  assert parse(
+      "[{\"url\":\"javascript:x\"},{\"url\":\"https://a/i.png\"}]",
+      ap_decode.image_url(),
+    )
+    == Some("https://a/i.png")
+}
