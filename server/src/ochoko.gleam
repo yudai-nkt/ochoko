@@ -5,8 +5,10 @@ import gleam/result
 import gleam/string
 import ochoko/cli
 import ochoko/config
+import ochoko/crypto/rsa
 import ochoko/db
 import ochoko/store/profile
+import simplifile
 import sqlight
 
 @external(erlang, "erlang", "halt")
@@ -42,9 +44,35 @@ pub fn main() -> Nil {
           io.println("header url: " <> option.unwrap(p.header_url, ""))
         }
       }
+    Ok(cli.Keygen(out_path)) ->
+      case run_keygen(out_path) {
+        Error(msg) -> {
+          io.println_error("error: " <> msg)
+          halt(1)
+        }
+        Ok(public_pem) -> io.print(public_pem)
+      }
     Ok(command) ->
       io.println(string.inspect(command) <> ": not implemented yet")
   }
+}
+
+fn run_keygen(out_path: String) -> Result(String, String) {
+  let key = rsa.generate(2048)
+  let describe = fn(e) { out_path <> ": " <> simplifile.describe_error(e) }
+  // Create the file with 0600 before writing the secret into it.
+  use _ <- result.try(
+    simplifile.create_file(out_path) |> result.map_error(describe),
+  )
+  use _ <- result.try(
+    simplifile.set_permissions_octal(out_path, 0o600)
+    |> result.map_error(describe),
+  )
+  use _ <- result.try(
+    simplifile.write(out_path, rsa.private_to_pem(key))
+    |> result.map_error(describe),
+  )
+  Ok(rsa.public_pem(key))
 }
 
 fn run_profile(
