@@ -103,3 +103,51 @@ pub fn list_by_actor_paging_test() {
     statuses.list_by_actor(conn, None, Page(None, None, None, 40))
   assert own == []
 }
+
+pub fn insert_remote_retries_on_id_clash_test() {
+  let conn = support.fresh_db()
+  let a = actor(conn)
+  let at = timestamp.from_unix_seconds(1_700_000_000)
+  let assert Ok(Nil) =
+    statuses.insert_remote_with_id(
+      conn,
+      42,
+      a,
+      n("https://r.example/n/1", 1_600_000_000),
+      mastodon.Public,
+      at,
+    )
+  // Same id, different URI: stored under a fresh id rather than dropped.
+  let assert Ok(Nil) =
+    statuses.insert_remote_with_id(
+      conn,
+      42,
+      a,
+      n("https://r.example/n/2", 1_600_000_000),
+      mastodon.Public,
+      at,
+    )
+  let assert Ok(Some(first)) =
+    statuses.get_by_uri(conn, "https://r.example/n/1")
+  let assert Ok(Some(second)) =
+    statuses.get_by_uri(conn, "https://r.example/n/2")
+  assert first.id == 42
+  assert second.id != 42
+  // A known URI is still left untouched.
+  let assert Ok(Nil) =
+    statuses.insert_remote_with_id(
+      conn,
+      7,
+      a,
+      n("https://r.example/n/1", 1_600_000_000),
+      mastodon.Public,
+      at,
+    )
+  let assert Ok([2]) =
+    sqlight.query(
+      "SELECT COUNT(*) FROM statuses",
+      on: conn,
+      with: [],
+      expecting: decode.at([0], decode.int),
+    )
+}

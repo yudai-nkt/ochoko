@@ -66,7 +66,12 @@ pub fn insert_remote(
   v: Visibility,
   now: Timestamp,
 ) -> Result(Nil, sqlight.Error) {
-  let published = case n.published {
+  let published = clamp_published(n, now)
+  insert_remote_with_id(conn, id.generate(published), actor_id, n, v, now)
+}
+
+fn clamp_published(n: InboundNote, now: Timestamp) -> Timestamp {
+  case n.published {
     Some(p) ->
       case timestamp.compare(p, now) {
         order.Gt -> now
@@ -74,12 +79,42 @@ pub fn insert_remote(
       }
     None -> now
   }
-  let status_id = id.generate(published)
+}
+
+/// `insert_remote` trying `first_id` as the ID. Only a URI conflict is
+/// ignored; should the ID already be taken (two IDs generated in the same
+/// millisecond with the same low bits), one retry is made with a fresh ID.
+/// Exposed for tests.
+pub fn insert_remote_with_id(
+  conn: sqlight.Connection,
+  first_id: Int,
+  actor_id: Int,
+  n: InboundNote,
+  v: Visibility,
+  now: Timestamp,
+) -> Result(Nil, sqlight.Error) {
+  let published = clamp_published(n, now)
+  case insert_remote_row(conn, first_id, actor_id, n, v, published) {
+    Error(sqlight.SqlightError(sqlight.ConstraintPrimarykey, _, _)) ->
+      insert_remote_row(conn, id.generate(published), actor_id, n, v, published)
+    other -> other
+  }
+}
+
+fn insert_remote_row(
+  conn: sqlight.Connection,
+  status_id: Int,
+  actor_id: Int,
+  n: InboundNote,
+  v: Visibility,
+  published: Timestamp,
+) -> Result(Nil, sqlight.Error) {
   use inserted <- result.try(sqlight.query(
-    "INSERT OR IGNORE INTO statuses
+    "INSERT INTO statuses
          (id, uri, actor_id, content_html, text, spoiler_text, sensitive,
           visibility, url, in_reply_to_uri, language, published_at)
        VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (uri) DO NOTHING
        RETURNING id",
     on: conn,
     with: [
