@@ -38,11 +38,11 @@ fn local_profile(conn: sqlight.Connection) -> profile.Profile {
 }
 
 fn default_avatar(ctx: Context) -> String {
-  "https://" <> ctx.config.host <> "/static/avatar.png"
+  config.static_url(ctx.config, "avatar.png")
 }
 
 fn default_header(ctx: Context) -> String {
-  "https://" <> ctx.config.host <> "/static/header.png"
+  config.static_url(ctx.config, "header.png")
 }
 
 pub fn local_account(

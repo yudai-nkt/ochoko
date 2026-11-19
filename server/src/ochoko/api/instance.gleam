@@ -7,6 +7,7 @@ import gleam/json
 import gleam/option.{Some}
 import gleam/result
 import ochoko/api/present
+import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/store/statuses
@@ -91,7 +92,7 @@ pub fn v2(req: Request, ctx: Context) -> Response {
       contact_email: "",
       contact_account: present.local_account(ctx, conn),
       active_month_users: 1,
-      thumbnail_url: "https://" <> ctx.config.host <> "/static/avatar.png",
+      thumbnail_url: config.static_url(ctx.config, "avatar.png"),
     )
     |> mastodon.instance_v2_to_json
   })

@@ -52,8 +52,36 @@ pub fn load(path: String) -> Result(Config, String) {
   parse(contents)
 }
 
+// --- permanent URLs ------------------------------------------------------------
+//
+// Every URL we publish is built here. They are permanent: remote servers
+// store them, so changing one breaks federation.
+
+/// `https://{host}`, without a trailing slash.
+pub fn base_url(c: Config) -> String {
+  "https://" <> c.host
+}
+
+/// Our actor id.
 pub fn actor_id(c: Config) -> String {
-  "https://" <> c.host <> "/me"
+  base_url(c) <> "/me"
+}
+
+/// The id of our actor's (only) public key.
+pub fn key_id(c: Config) -> String {
+  actor_id(c) <> "#main-key"
+}
+
+pub fn inbox_uri(c: Config) -> String {
+  actor_id(c) <> "/inbox"
+}
+
+pub fn shared_inbox_uri(c: Config) -> String {
+  base_url(c) <> "/inbox"
+}
+
+pub fn outbox_uri(c: Config) -> String {
+  actor_id(c) <> "/outbox"
 }
 
 /// Our followers collection.
@@ -61,13 +89,34 @@ pub fn followers_uri(c: Config) -> String {
   actor_id(c) <> "/followers"
 }
 
-/// The URI (and public URL) of our status `id`.
-pub fn status_uri(c: Config, id: Int) -> String {
-  "https://" <> c.host <> "/statuses/" <> int.to_string(id)
+pub fn following_uri(c: Config) -> String {
+  actor_id(c) <> "/following"
 }
 
-pub fn key_id(c: Config) -> String {
-  actor_id(c) <> "#main-key"
+/// The human-facing profile page (where browsers are sent).
+pub fn profile_url(c: Config) -> String {
+  base_url(c) <> "/profile"
+}
+
+/// The id of an activity we send; `id` is a generated id.
+pub fn activity_uri(c: Config, id: Int) -> String {
+  base_url(c) <> "/activities/" <> int.to_string(id)
+}
+
+/// The URI (and public URL) of our status `id`.
+pub fn status_uri(c: Config, id: Int) -> String {
+  base_url(c) <> "/statuses/" <> int.to_string(id)
+}
+
+/// A file under `priv/static`, e.g. `static_url(c, "avatar.png")`.
+pub fn static_url(c: Config, file: String) -> String {
+  base_url(c) <> "/static/" <> file
+}
+
+/// An absolute URL of ours for `path` (which starts with `/`), e.g. API
+/// pagination links.
+pub fn url(c: Config, path: String) -> String {
+  base_url(c) <> path
 }
 
 pub fn acct(c: Config) -> String {

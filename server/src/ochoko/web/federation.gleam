@@ -6,6 +6,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/crypto/rsa
@@ -16,6 +17,7 @@ import ochoko/federation/local_actor
 import ochoko/store/follows
 import ochoko/store/profile
 import ochoko/store/statuses
+import sqlight
 import wisp.{type Request, type Response}
 
 const activity_json = "application/activity+json; charset=utf-8"
@@ -26,22 +28,41 @@ pub fn webfinger(req: Request, ctx: Context) -> Response {
   use <- wisp.require_method(req, Get)
   case list.key_find(wisp.get_query(req), "resource") {
     Error(Nil) -> wisp.bad_request("missing resource")
-    Ok(resource) -> {
-      let c = ctx.config
-      let known = [
-        "acct:" <> c.handle <> "@" <> c.account_domain,
-        "acct:" <> c.handle <> "@" <> c.host,
-        config.actor_id(c),
-      ]
-      case list.contains(known, resource) {
+    Ok(resource) ->
+      case is_our_resource(ctx.config, resource) {
         True ->
           wisp.ok()
           |> response.set_header("content-type", jrd_json)
-          |> wisp.string_body(json.to_string(local_actor.webfinger_json(c)))
+          |> wisp.string_body(
+            json.to_string(local_actor.webfinger_json(ctx.config)),
+          )
         False -> wisp.not_found()
       }
-    }
   }
+}
+
+/// `acct:user@domain` (scheme optional, compared case-insensitively) for our
+/// handle at the account domain or the host, or our actor URL.
+fn is_our_resource(c: config.Config, resource: String) -> Bool {
+  let resource = string.trim(resource)
+  let lowered = string.lowercase(resource)
+  let acct = case string.starts_with(lowered, "acct:") {
+    True -> string.drop_start(lowered, 5)
+    False -> lowered
+  }
+  let acct = case string.starts_with(acct, "@") {
+    True -> string.drop_start(acct, 1)
+    False -> acct
+  }
+  let handle = string.lowercase(c.handle)
+  resource == config.actor_id(c)
+  || list.contains(
+    [
+      handle <> "@" <> string.lowercase(c.account_domain),
+      handle <> "@" <> string.lowercase(c.host),
+    ],
+    acct,
+  )
 }
 
 /// The actor document. Browsers are redirected to the profile page.
@@ -50,35 +71,32 @@ pub fn actor(req: Request, ctx: Context, wants_html: Bool) -> Response {
   case wants_html {
     True ->
       wisp.response(302)
-      |> response.set_header(
-        "location",
-        "https://" <> ctx.config.host <> "/profile",
-      )
+      |> response.set_header("location", config.profile_url(ctx.config))
     False ->
       case db.with_connection(ctx.db_path, profile.get) {
         Ok(p) ->
           local_actor.actor_json(ctx.config, p, rsa.public_pem(ctx.private_key))
           |> activity_response
-        Error(_) -> wisp.internal_server_error()
+        Error(e) -> server_error(e)
       }
   }
 }
 
 pub fn followers(req: Request, ctx: Context) -> Response {
-  collection(req, ctx, "/followers", follows.follower_count)
+  collection(req, ctx, config.followers_uri, follows.follower_count)
 }
 
 pub fn following(req: Request, ctx: Context) -> Response {
-  collection(req, ctx, "/following", follows.following_count)
+  collection(req, ctx, config.following_uri, follows.following_count)
 }
 
 pub fn inbox(req: Request, ctx: Context) -> Response {
   inbox.handle(ctx, req)
 }
 
-/// Statuses are not published yet, so the outbox is always empty.
+/// The outbox exposes only the number of our live statuses.
 pub fn outbox(req: Request, ctx: Context) -> Response {
-  collection(req, ctx, "/outbox", fn(_) { Ok(0) })
+  collection(req, ctx, config.outbox_uri, statuses.count_by_actor(_, None))
 }
 
 /// One of our statuses as a `Note`. Deleted ones are gone (410); remote and
@@ -90,7 +108,7 @@ pub fn status(req: Request, ctx: Context, id: String) -> Response {
     Ok(n) -> db.with_connection(ctx.db_path, statuses.get(_, n))
   }
   case found {
-    Error(_) -> wisp.internal_server_error()
+    Error(e) -> server_error(e)
     Ok(Some(row)) if row.actor_id == None ->
       case row.deleted_at {
         Some(_) ->
@@ -103,14 +121,24 @@ pub fn status(req: Request, ctx: Context, id: String) -> Response {
   }
 }
 
-fn collection(req, ctx: Context, suffix, count) -> Response {
+fn collection(
+  req: Request,
+  ctx: Context,
+  id: fn(config.Config) -> String,
+  count: fn(sqlight.Connection) -> Result(Int, sqlight.Error),
+) -> Response {
   use <- wisp.require_method(req, Get)
   case db.with_connection(ctx.db_path, count) {
     Ok(n) ->
-      local_actor.collection_json(config.actor_id(ctx.config) <> suffix, n)
+      local_actor.collection_json(id(ctx.config), n)
       |> activity_response
-    Error(_) -> wisp.internal_server_error()
+    Error(e) -> server_error(e)
   }
+}
+
+fn server_error(e: sqlight.Error) -> Response {
+  wisp.log_error("federation: database error: " <> e.message)
+  wisp.internal_server_error()
 }
 
 fn activity_response(body: json.Json) -> Response {

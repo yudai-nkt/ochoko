@@ -1,6 +1,5 @@
 //// Outbound ActivityPub activities. Ids are `https://{host}/activities/{id}`.
 
-import gleam/int
 import gleam/json
 import gleam/option.{None, Some}
 import gleam/time/calendar
@@ -16,10 +15,7 @@ const context_url = "https://www.w3.org/ns/activitystreams"
 pub const public = "https://www.w3.org/ns/activitystreams#Public"
 
 fn new_id(c: Config) -> String {
-  "https://"
-  <> c.host
-  <> "/activities/"
-  <> int.to_string(id.generate(timestamp.system_time()))
+  config.activity_uri(c, id.generate(timestamp.system_time()))
 }
 
 fn activity(
@@ -40,7 +36,12 @@ fn activity(
 /// A `Follow` of `object`; returns the activity id and the activity.
 pub fn follow(c: Config, object: String) -> #(String, json.Json) {
   let activity_id = new_id(c)
-  #(activity_id, activity(c, activity_id, "Follow", json.string(object)))
+  #(activity_id, follow_with_id(c, activity_id, object))
+}
+
+/// The `Follow` of `object` with the given id (to send it again).
+pub fn follow_with_id(c: Config, activity_id: String, object: String) {
+  activity(c, activity_id, "Follow", json.string(object))
 }
 
 pub fn undo(c: Config, inner: json.Json) -> json.Json {

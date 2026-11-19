@@ -3,6 +3,7 @@
 import gleam/json
 import gleam/option.{None, Some}
 import ochoko/config.{type Config}
+import ochoko/html
 import ochoko/store/profile.{type Profile}
 
 pub fn actor_json(c: Config, p: Profile, public_pem: String) -> json.Json {
@@ -38,17 +39,15 @@ pub fn actor_json(c: Config, p: Profile, public_pem: String) -> json.Json {
     #("id", json.string(id)),
     #("preferredUsername", json.string(c.handle)),
     #("name", json.string(name)),
-    #("summary", json.string(p.note)),
-    #("url", json.string("https://" <> c.host <> "/profile")),
-    #("inbox", json.string(id <> "/inbox")),
-    #("outbox", json.string(id <> "/outbox")),
+    #("summary", json.string(html.text_to_html(p.note))),
+    #("url", json.string(config.profile_url(c))),
+    #("inbox", json.string(config.inbox_uri(c))),
+    #("outbox", json.string(config.outbox_uri(c))),
     #("followers", json.string(config.followers_uri(c))),
-    #("following", json.string(id <> "/following")),
+    #("following", json.string(config.following_uri(c))),
     #(
       "endpoints",
-      json.object([
-        #("sharedInbox", json.string("https://" <> c.host <> "/inbox")),
-      ]),
+      json.object([#("sharedInbox", json.string(config.shared_inbox_uri(c)))]),
     ),
     #("manuallyApprovesFollowers", json.bool(False)),
     #("discoverable", json.bool(True)),

@@ -14,6 +14,7 @@ import ochoko/api/pagination
 import ochoko/api/params
 import ochoko/api/present
 import ochoko/api/respond.{json_ok, not_found, server_error}
+import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/federation/activities
@@ -173,11 +174,8 @@ pub fn statuses(req: Request, ctx: Context, id: String) -> Response {
         Ok(rows) -> {
           let ids = list.map(rows, fn(r) { r.id })
           let base =
-            "https://"
-            <> ctx.config.host
-            <> "/api/v1/accounts/"
-            <> id
-            <> "/statuses?limit="
+            config.url(ctx.config, "/api/v1/accounts/" <> id <> "/statuses")
+            <> "?limit="
             <> int.to_string(page.limit)
           let res =
             json_ok(
@@ -279,11 +277,25 @@ fn remote_action(
   }
 }
 
+/// Follows the account, or, while our request is still pending, sends the
+/// same `Follow` (same id) again. Already following: nothing to do.
 pub fn follow(req: Request, ctx: Context, id: String) -> Response {
   use conn, actor <- remote_action(req, ctx, id)
+  use <- db.transaction(conn)
+  let send = fn(body: json.Json) {
+    deliveries.enqueue(conn, [actor.inbox], json.to_string(body), ctx.now())
+  }
   use state <- result.try(follows.is_following(conn, actor.id))
   case state {
-    Some(_) -> Ok(Nil)
+    Some(follows.Accepted) -> Ok(Nil)
+    Some(follows.Pending) -> {
+      use follow_uri <- result.try(follows.following_follow_uri(conn, actor.id))
+      case follow_uri {
+        Some(follow_id) ->
+          send(activities.follow_with_id(ctx.config, follow_id, actor.uri))
+        None -> Ok(Nil)
+      }
+    }
     None -> {
       let #(follow_id, body) = activities.follow(ctx.config, actor.uri)
       use _ <- result.try(follows.add_following(
@@ -292,7 +304,7 @@ pub fn follow(req: Request, ctx: Context, id: String) -> Response {
         follow_id,
         ctx.now(),
       ))
-      deliveries.enqueue(conn, [actor.inbox], json.to_string(body), ctx.now())
+      send(body)
     }
   }
 }

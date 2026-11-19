@@ -6,10 +6,14 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/time/timestamp
 import ochoko/db
 import ochoko/federation/local_actor
+import ochoko/html
 import ochoko/store/profile.{Profile}
+import ochoko/store/statuses
 import ochoko/web/router
+import ochoko_shared/mastodon
 import sqlight
 import support
 import wisp/simulate
@@ -186,4 +190,60 @@ fn insert_follower(conn: sqlight.Connection, n: Int) -> Nil {
       expecting: decode.success(Nil),
     )
   Nil
+}
+
+// --- final review fixes -------------------------------------------------------
+
+pub fn webfinger_is_case_insensitive_test() {
+  assert get("/.well-known/webfinger?resource=acct:Yudai@YNKT.me").status == 200
+  assert get("/.well-known/webfinger?resource=ACCT:yudai@Ochoko.Ynkt.Me").status
+    == 200
+}
+
+pub fn webfinger_tolerates_missing_acct_prefix_test() {
+  let res = get("/.well-known/webfinger?resource=yudai@ynkt.me")
+  assert res.status == 200
+  assert string_at(simulate.read_body(res), ["subject"]) == "acct:yudai@ynkt.me"
+  assert get("/.well-known/webfinger?resource=nobody@ynkt.me").status == 404
+}
+
+pub fn actor_summary_is_rendered_note_test() {
+  let p = Profile("Yudai", "hi <b>\nthere", None, None)
+  let body =
+    local_actor.actor_json(support.test_config(), p, "PEM")
+    |> json.to_string
+  assert string_at(body, ["summary"]) == html.text_to_html("hi <b>\nthere")
+}
+
+pub fn outbox_counts_own_live_statuses_test() {
+  let path = support.temp_db_path()
+  let ctx = support.test_context(path)
+  let now = timestamp.from_unix_seconds(1_700_000_000)
+  db.with_connection(path, fn(conn) {
+    let insert = fn() {
+      let assert Ok(row) =
+        statuses.insert_own(
+          conn,
+          ctx.config,
+          "x",
+          "<p>x</p>",
+          mastodon.Public,
+          "",
+          False,
+          None,
+          now,
+        )
+      row
+    }
+    let _ = insert()
+    let _ = insert()
+    let gone = insert()
+    let assert Ok(Nil) = statuses.mark_deleted(conn, gone.id, now)
+    Nil
+  })
+  let res = router.handle_request(simulate.request(http.Get, "/me/outbox"), ctx)
+  assert res.status == 200
+  let body = simulate.read_body(res)
+  let assert Ok(2) = json.parse(body, decode.at(["totalItems"], decode.int))
+  assert string_at(body, ["id"]) == "https://ochoko.ynkt.me/me/outbox"
 }

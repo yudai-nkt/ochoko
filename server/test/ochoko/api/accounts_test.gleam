@@ -255,14 +255,44 @@ pub fn follow_enqueues_follow_and_marks_requested_test() {
   assert field_of(body, "actor") == "https://ochoko.ynkt.me/me"
 }
 
-pub fn follow_twice_is_noop_test() {
+pub fn refollow_while_pending_resends_same_follow_test() {
   let #(path, ctx, token) = setup()
   let id = int_to_string(remote_id(ctx))
   let _ = post(ctx, token, "/api/v1/accounts/" <> id <> "/follow")
   let res = post(ctx, token, "/api/v1/accounts/" <> id <> "/follow")
   assert res.status == 200
   assert flag(res, ["requested"]) == True
+  let assert [#(_, first), #(inbox, second)] = deliveries(path)
+  assert inbox == remote_uri <> "/inbox"
+  assert field_of(second, "type") == "Follow"
+  assert field_of(second, "id") == field_of(first, "id")
+  assert count(path, "SELECT COUNT(*) FROM following") == 1
+}
+
+pub fn refollow_when_accepted_is_noop_test() {
+  let #(path, ctx, token) = setup()
+  let id_int = remote_id(ctx)
+  let id = int_to_string(id_int)
+  let _ = post(ctx, token, "/api/v1/accounts/" <> id <> "/follow")
+  let assert Ok(Nil) =
+    db.with_connection(path, follows.set_following_accepted(_, id_int))
+  let res = post(ctx, token, "/api/v1/accounts/" <> id <> "/follow")
+  assert res.status == 200
+  assert flag(res, ["following"]) == True
   assert list.length(deliveries(path)) == 1
+}
+
+fn count(path: String, sql: String) -> Int {
+  let assert Ok([n]) =
+    db.with_connection(path, fn(conn) {
+      sqlight.query(
+        sql,
+        on: conn,
+        with: [],
+        expecting: decode.at([0], decode.int),
+      )
+    })
+  n
 }
 
 pub fn unfollow_enqueues_undo_with_original_follow_id_test() {

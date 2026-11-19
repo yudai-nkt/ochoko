@@ -10,6 +10,7 @@ import ochoko/api/auth
 import ochoko/api/pagination
 import ochoko/api/present
 import ochoko/api/respond
+import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/db
 import ochoko/store/statuses
@@ -25,8 +26,7 @@ pub fn with_link(
   limit: Int,
   ids: List(Int),
 ) -> Response {
-  let base =
-    "https://" <> ctx.config.host <> path <> "?limit=" <> int.to_string(limit)
+  let base = config.url(ctx.config, path) <> "?limit=" <> int.to_string(limit)
   case
     pagination.link_header(
       base,

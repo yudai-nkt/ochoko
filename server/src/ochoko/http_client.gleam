@@ -43,7 +43,7 @@ pub const max_response_bytes = 1_048_576
 fn is_blocked_ip_literal(host: String) -> Bool
 
 fn user_agent(ctx: Context) -> String {
-  "ochoko/0.1.0 (+https://" <> ctx.config.host <> "/)"
+  "ochoko/0.1.0 (+" <> config.base_url(ctx.config) <> "/)"
 }
 
 /// Checks that `url` may be fetched: `https` and a public host.
