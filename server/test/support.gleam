@@ -1,3 +1,4 @@
+import argus
 import gleam/http
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
@@ -80,6 +81,7 @@ pub fn test_context_with_send(db_path: String, send: Send) -> Context {
     now: fn() { timestamp.from_unix_seconds(1_700_000_000) },
     private_key: test_key(),
     send:,
+    login_failure_delay_ms: 0,
   )
 }
 
@@ -173,4 +175,31 @@ fn host_of(uri: String) -> String {
   let assert Ok(parsed) = uri.parse(uri)
   let assert Some(host) = parsed.host
   host
+}
+
+pub const test_password = "correct horse battery staple"
+
+@external(erlang, "ochoko_rsa_test_ffi", "cached_key_named")
+fn cached_string(name: String, make: fn() -> String) -> String
+
+/// An argon2id hash of `test_password`, computed once with cheap parameters.
+pub fn test_password_hash() -> String {
+  cached_string("password_hash", fn() {
+    let assert Ok(out) =
+      argus.hasher()
+      |> argus.algorithm(argus.Argon2id)
+      |> argus.time_cost(1)
+      |> argus.memory_cost(64)
+      |> argus.hash(test_password)
+    out.encoded_hash
+  })
+}
+
+/// Like `test_context`, but `config.password_hash` verifies `test_password`.
+pub fn login_context(db_path: String) -> Context {
+  let ctx = test_context(db_path)
+  Context(
+    ..ctx,
+    config: Config(..ctx.config, password_hash: test_password_hash()),
+  )
 }

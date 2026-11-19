@@ -2,6 +2,8 @@ import gleam/http.{Options}
 import gleam/http/request
 import gleam/http/response
 import gleam/string
+import ochoko/api/apps
+import ochoko/api/oauth
 import ochoko/context.{type Context}
 import ochoko/web/federation
 import wisp.{type Request, type Response}
@@ -16,6 +18,12 @@ pub fn handle_request(req: Request, ctx: Context) -> Response {
     ["me", "following"] -> federation.following(req, ctx)
     ["me", "inbox"] | ["inbox"] -> federation.inbox(req, ctx)
     ["me", "outbox"] -> federation.outbox(req, ctx)
+    ["api", "v1", "apps"] -> apps.create(req, ctx)
+    ["api", "v1", "apps", "verify_credentials"] ->
+      apps.verify_credentials(req, ctx)
+    ["oauth", "authorize"] -> oauth.authorize(req, ctx)
+    ["oauth", "token"] -> oauth.token(req, ctx)
+    ["oauth", "revoke"] -> oauth.revoke(req, ctx)
     _ -> wisp.not_found()
   }
 }

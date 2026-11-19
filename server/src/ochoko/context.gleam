@@ -11,5 +11,7 @@ pub type Context {
     now: fn() -> Timestamp,
     private_key: rsa.PrivateKey,
     send: Send,
+    /// Pause before answering a wrong password; 0 in tests.
+    login_failure_delay_ms: Int,
   )
 }

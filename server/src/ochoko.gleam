@@ -1,10 +1,10 @@
+import argus
 import argv
 import gleam/http/response.{type Response}
 import gleam/int
 import gleam/io
 import gleam/option.{Some}
 import gleam/result
-import gleam/string
 import gleam/time/timestamp
 import ochoko/cli
 import ochoko/config
@@ -68,8 +68,34 @@ pub fn main() -> Nil {
           io.println(res.body)
         }
       }
-    Ok(command) ->
-      io.println(string.inspect(command) <> ": not implemented yet")
+    Ok(cli.HashPassword) ->
+      case run_hash_password() {
+        Error(msg) -> {
+          io.println_error("error: " <> msg)
+          halt(1)
+        }
+        Ok(hash) -> io.println(hash)
+      }
+  }
+}
+
+@external(erlang, "ochoko_ffi", "read_password")
+fn read_password() -> Result(String, Nil)
+
+/// Reads a password from stdin and returns its argon2id hash. The password
+/// itself is never printed.
+fn run_hash_password() -> Result(String, String) {
+  use password <- result.try(
+    read_password() |> result.replace_error("could not read a password"),
+  )
+  case password {
+    "" -> Error("password must not be empty")
+    _ ->
+      argus.hasher()
+      |> argus.algorithm(argus.Argon2id)
+      |> argus.hash(password)
+      |> result.map(fn(out) { out.encoded_hash })
+      |> result.replace_error("could not hash the password")
   }
 }
 
@@ -95,6 +121,7 @@ fn run_fetch(
       now: timestamp.system_time,
       private_key: key,
       send: http_client.httpc_send(10_000),
+      login_failure_delay_ms: 1000,
     )
   http_client.signed_get(ctx, url)
   |> result.map_error(http_client.describe_error)
