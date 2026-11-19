@@ -203,17 +203,23 @@ pub fn locked_rows_are_skipped_test() {
 }
 
 pub fn claimed_rows_are_locked_test() {
+  let parked = process.new_subject()
   let path = support.temp_db_path()
   insert(path, "https://a.example/inbox", 0, now, 0)
   let ctx =
     support.test_context_with_send(path, fn(_) {
-      // Parks the worker (own subject, never sent to) for the whole test.
-      let _ = process.receive(process.new_subject(), 30_000)
+      // Parks the worker until the test releases it.
+      let release = process.new_subject()
+      process.send(parked, release)
+      let _ = process.receive(release, 30_000)
       Ok(response.new(200) |> response.set_body(""))
     })
   assert delivery.run_once(ctx) == 1
   assert delivery.run_once(ctx) == 0
-  assert rows(path) == [#("https://a.example/inbox", 0, now, now + 60)]
+  assert rows(path) == [#("https://a.example/inbox", 1, now, now + 60)]
+  let assert Ok(release) = process.receive(parked, 5000)
+  process.send(release, Nil)
+  assert await_rows(path, [], 500)
 }
 
 /// Host A blocks until released; host B must complete while A is still
@@ -271,4 +277,19 @@ pub fn posted_request_is_signed_test() {
   assert request.get_header(req, "digest") == Ok(signature.digest("{}"))
   let assert Ok(header) = request.get_header(req, "signature")
   assert header != ""
+}
+
+pub fn crashing_worker_still_consumes_an_attempt_test() {
+  let path = support.temp_db_path()
+  insert(path, "https://a.example/inbox", 0, now, 0)
+  assert run(path, fn(_) { panic as "boom" }) == 1
+  assert rows(path) == [#("https://a.example/inbox", 1, now, now + 60)]
+}
+
+pub fn crash_loop_is_eventually_dropped_test() {
+  let path = support.temp_db_path()
+  // Stored count 10: the 10th (final) attempt already crashed.
+  insert(path, "https://a.example/inbox", 10, now, 0)
+  assert run(path, fn(_) { panic as "boom" }) == 0
+  assert rows(path) == []
 }

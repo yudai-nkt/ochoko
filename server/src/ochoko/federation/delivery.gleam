@@ -36,6 +36,8 @@ pub const backoff_seconds = [
 
 const batch_size = 16
 
+/// Lease on a claimed row. Must comfortably exceed the per-request timeout
+/// of the production transport (`httpc_send(10_000)`, i.e. 10 s).
 const lock_seconds = 60
 
 const tick_ms = 5000
@@ -52,31 +54,49 @@ pub fn run_once(ctx: Context) -> Int {
   list.length(dispatch(ctx))
 }
 
+/// The attempt is counted when a row is claimed, so a worker that crashes
+/// (or a node that dies) still consumes one; rows left over the limit are
+/// purged at the next claim.
 /// Like `run_once`, but waits (up to `timeout_ms` per worker) for the
 /// workers to finish. Intended for tests.
 pub fn run_once_and_wait(ctx: Context, timeout_ms: Int) -> Int {
-  let done = dispatch(ctx)
-  list.each(done, fn(subject) { process.receive(subject, timeout_ms) })
-  list.length(done)
+  let pids = dispatch(ctx)
+  list.each(pids, wait_for_exit(_, timeout_ms))
+  list.length(pids)
 }
 
-fn dispatch(ctx: Context) -> List(Subject(Nil)) {
+fn wait_for_exit(pid: process.Pid, timeout_ms: Int) -> Nil {
+  case process.is_alive(pid) && timeout_ms > 0 {
+    False -> Nil
+    True -> {
+      process.sleep(5)
+      wait_for_exit(pid, timeout_ms - 5)
+    }
+  }
+}
+
+fn dispatch(ctx: Context) -> List(process.Pid) {
   let claimed =
     db.with_connection(ctx.db_path, fn(conn) {
+      case deliveries.purge_exhausted(conn, list.length(backoff_seconds)) {
+        Ok(0) -> Nil
+        Ok(n) ->
+          wisp.log_warning(
+            "delivery: dropped "
+            <> int.to_string(n)
+            <> " rows that exhausted their attempts",
+          )
+        Error(e) -> wisp.log_warning("delivery: purge failed: " <> e.message)
+      }
       deliveries.claim_due(conn, ctx.now(), batch_size, lock_seconds)
     })
   case claimed {
     Ok(rows) ->
       list.map(rows, fn(row) {
-        let done = process.new_subject()
-        process.spawn_unlinked(fn() {
-          deliver(ctx, row)
-          process.send(done, Nil)
-        })
-        done
+        process.spawn_unlinked(fn() { deliver(ctx, row) })
       })
-    Error(_) -> {
-      wisp.log_warning("delivery: failed to claim rows")
+    Error(e) -> {
+      wisp.log_warning("delivery: failed to claim rows: " <> e.message)
       []
     }
   }
@@ -85,7 +105,7 @@ fn dispatch(ctx: Context) -> List(Subject(Nil)) {
 fn deliver(ctx: Context, row: Delivery) -> Nil {
   let outcome = attempt(ctx, row)
   db.with_connection(ctx.db_path, fn(conn) {
-    let _ = case outcome {
+    let written = case outcome {
       Delivered -> deliveries.delete(conn, row.id)
       Drop(reason) -> {
         wisp.log_warning(
@@ -99,7 +119,6 @@ fn deliver(ctx: Context, row: Delivery) -> Nil {
             deliveries.reschedule(
               conn,
               row.id,
-              row.attempts + 1,
               deliveries.unix(ctx.now()) + delay,
             )
           [] -> {
@@ -116,7 +135,16 @@ fn deliver(ctx: Context, row: Delivery) -> Nil {
           }
         }
     }
-    Nil
+    case written {
+      Ok(Nil) -> Nil
+      Error(e) ->
+        wisp.log_warning(
+          "delivery: could not record outcome for row "
+          <> int.to_string(row.id)
+          <> ": "
+          <> e.message,
+        )
+    }
   })
 }
 

@@ -5,6 +5,7 @@ import gleam/list
 import gleam/result
 import gleam/time/timestamp.{type Timestamp}
 import sqlight
+import wisp
 
 /// A claimed delivery row.
 pub type Delivery {
@@ -53,11 +54,38 @@ pub fn inboxes_for_followers(conn: sqlight.Connection) -> List(String) {
     with: [],
     expecting: decode.at([0], decode.string),
   )
-  |> result.unwrap([])
+  |> fn(r) {
+    case r {
+      Ok(inboxes) -> inboxes
+      Error(e) -> {
+        wisp.log_warning(
+          "deliveries: follower inbox query failed: " <> e.message,
+        )
+        []
+      }
+    }
+  }
+}
+
+/// Delete rows whose stored `attempts` exceeds `max` (workers that crashed
+/// on their final attempt). Returns how many were removed.
+pub fn purge_exhausted(
+  conn: sqlight.Connection,
+  max: Int,
+) -> Result(Int, sqlight.Error) {
+  sqlight.query(
+    "DELETE FROM deliveries WHERE attempts > ? RETURNING id",
+    on: conn,
+    with: [sqlight.int(max)],
+    expecting: decode.at([0], decode.int),
+  )
+  |> result.map(list.length)
 }
 
 /// Atomically claim up to `limit` due, unlocked rows by locking them until
-/// `now + lock_seconds`.
+/// `now + lock_seconds`. The attempt is counted at claim time (so a worker
+/// that crashes still consumes one); the returned `attempts` is the count
+/// BEFORE this attempt.
 pub fn claim_due(
   conn: sqlight.Connection,
   now: Timestamp,
@@ -66,12 +94,12 @@ pub fn claim_due(
 ) -> Result(List(Delivery), sqlight.Error) {
   let at = unix(now)
   sqlight.query(
-    "UPDATE deliveries SET locked_until = ?
+    "UPDATE deliveries SET locked_until = ?, attempts = attempts + 1
      WHERE id IN (
        SELECT id FROM deliveries
        WHERE next_attempt_at <= ? AND locked_until <= ?
        ORDER BY next_attempt_at, id LIMIT ?)
-     RETURNING id, inbox, body, attempts",
+     RETURNING id, inbox, body, attempts - 1",
     on: conn,
     with: [
       sqlight.int(at + lock_seconds),
@@ -99,22 +127,17 @@ pub fn delete(conn: sqlight.Connection, id: Int) -> Result(Nil, sqlight.Error) {
   |> result.replace(Nil)
 }
 
-/// Record a failed attempt: bump `attempts`, set the next due time, unlock.
+/// Schedule the next try of a claimed row and release its lock.
 pub fn reschedule(
   conn: sqlight.Connection,
   id: Int,
-  attempts: Int,
   next_attempt_at: Int,
 ) -> Result(Nil, sqlight.Error) {
   sqlight.query(
-    "UPDATE deliveries
-     SET attempts = ?, next_attempt_at = ?, locked_until = 0 WHERE id = ?",
+    "UPDATE deliveries SET next_attempt_at = ?, locked_until = 0
+     WHERE id = ?",
     on: conn,
-    with: [
-      sqlight.int(attempts),
-      sqlight.int(next_attempt_at),
-      sqlight.int(id),
-    ],
+    with: [sqlight.int(next_attempt_at), sqlight.int(id)],
     expecting: decode.success(Nil),
   )
   |> result.replace(Nil)
