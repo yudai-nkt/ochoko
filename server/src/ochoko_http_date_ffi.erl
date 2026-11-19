@@ -14,11 +14,13 @@ format(Seconds) ->
                                    [Day, D, element(Mo, Months), Y, H, Mi, S])).
 
 parse(String) ->
-    try httpd_util:convert_request_date(binary_to_list(String)) of
-        {{_, _, _}, {_, _, _}} = DateTime ->
-            Seconds = calendar:datetime_to_gregorian_seconds(DateTime)
-                - calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
-            {ok, Seconds};
-        _ -> {error, nil}
+    try
+        {{Y, Mo, D}, {H, Mi, S}} = DateTime = httpd_util:convert_request_date(binary_to_list(String)),
+        true = calendar:valid_date(Y, Mo, D),
+        true = H >= 0 andalso H =< 23 andalso Mi >= 0 andalso Mi =< 59
+            andalso S >= 0 andalso S =< 59,
+        Seconds = calendar:datetime_to_gregorian_seconds(DateTime)
+            - calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
+        {ok, Seconds}
     catch _:_ -> {error, nil}
     end.

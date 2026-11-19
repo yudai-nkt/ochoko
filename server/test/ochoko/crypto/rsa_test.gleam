@@ -1,10 +1,13 @@
 import gleam/string
 import ochoko/crypto/rsa
 
-// Key generation is slow, so share one key across tests.
+// Key generation is slow, so cache one key for the whole test run.
 fn key() -> rsa.PrivateKey {
-  rsa.generate(2048)
+  cached_key(fn() { rsa.generate(2048) })
 }
+
+@external(erlang, "ochoko_rsa_test_ffi", "cached_key")
+fn cached_key(make: fn() -> rsa.PrivateKey) -> rsa.PrivateKey
 
 pub fn sign_verify_roundtrip_test() {
   let k = key()
