@@ -182,3 +182,14 @@ pub fn search_prefix(
          ORDER BY lower(username), domain
          LIMIT ?", on: conn, with: [sqlight.text(pattern), sqlight.int(limit)], expecting: row())
 }
+
+/// Removes the actor; its statuses, follows and notifications cascade.
+pub fn delete(conn: sqlight.Connection, id: Int) -> Result(Nil, sqlight.Error) {
+  sqlight.query(
+    "DELETE FROM remote_actors WHERE id = ?",
+    on: conn,
+    with: [sqlight.int(id)],
+    expecting: decode.success(Nil),
+  )
+  |> result.replace(Nil)
+}

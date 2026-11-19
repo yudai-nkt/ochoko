@@ -6,20 +6,25 @@ import gleam/http.{Post}
 import gleam/http/request
 import gleam/json
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/uri
 import ochoko/config
 import ochoko/context.{type Context}
 import ochoko/crypto/rsa
 import ochoko/db
 import ochoko/federation/activities
 import ochoko/federation/ap_decode
+import ochoko/federation/note.{type InboundNote}
 import ochoko/federation/remote_actor.{type RemoteActor}
+import ochoko/http_client
 import ochoko/signature
 import ochoko/store/deliveries
 import ochoko/store/follows
 import ochoko/store/notifications
 import ochoko/store/processed_activities
+import ochoko/store/remote_actors
+import ochoko/store/statuses
 import sqlight
 import wisp.{type Request, type Response}
 
@@ -117,6 +122,8 @@ fn process(
   envelope: Envelope,
   body: String,
 ) -> Response {
+  // Network I/O must not happen while the write transaction is held.
+  let inbound = resolve_note(ctx, signer, envelope, body)
   let outcome =
     db.with_connection(ctx.db_path, fn(conn) {
       in_transaction(conn, fn() {
@@ -127,7 +134,14 @@ fn process(
         case seen {
           True -> Ok(Nil)
           False -> {
-            use _ <- result.try(dispatch(ctx, conn, signer, envelope, body))
+            use _ <- result.try(dispatch(
+              ctx,
+              conn,
+              signer,
+              envelope,
+              body,
+              inbound,
+            ))
             processed_activities.mark(conn, envelope.id, ctx.now())
           }
         }
@@ -159,6 +173,22 @@ fn in_transaction(
 }
 
 fn dispatch(
+  ctx: Context,
+  conn: sqlight.Connection,
+  signer: RemoteActor,
+  envelope: Envelope,
+  body: String,
+  inbound: Option(InboundNote),
+) -> Result(Nil, sqlight.Error) {
+  let is = fn(type_) { list.contains(envelope.types, type_) }
+  case is("Create"), is("Delete") {
+    True, _ -> handle_create(ctx, conn, signer, inbound)
+    _, True -> handle_delete(conn, signer, body)
+    _, _ -> dispatch_follow_activity(ctx, conn, signer, envelope, body)
+  }
+}
+
+fn dispatch_follow_activity(
   ctx: Context,
   conn: sqlight.Connection,
   signer: RemoteActor,
@@ -262,4 +292,114 @@ fn embedded_types(body: String) -> option.Option(List(String)) {
 
 fn object_iri(body: String) -> option.Option(String) {
   json.parse(body, decode.at(["object"], decode.string)) |> option.from_result
+}
+
+/// For a `Create`, the note it carries, embedded or fetched by IRI. A note
+/// is fetched only for an accepted followee, so that unsolicited activities
+/// cannot make us fetch arbitrary URLs.
+fn resolve_note(
+  ctx: Context,
+  signer: RemoteActor,
+  envelope: Envelope,
+  body: String,
+) -> Option(InboundNote) {
+  case list.contains(envelope.types, "Create") {
+    False -> None
+    True ->
+      case json.parse(body, decode.at(["object"], decode.dynamic)) {
+        Error(_) -> None
+        Ok(object) ->
+          case decode.run(object, decode.string) {
+            Ok(iri) ->
+              case is_accepted_followee(ctx, signer) {
+                True -> fetch_note(ctx, iri)
+                False -> None
+              }
+            Error(_) -> note.decode(object) |> option.from_result
+          }
+      }
+  }
+}
+
+fn is_accepted_followee(ctx: Context, signer: RemoteActor) -> Bool {
+  case db.with_connection(ctx.db_path, follows.is_following(_, signer.id)) {
+    Ok(Some(follows.Accepted)) -> True
+    _ -> False
+  }
+}
+
+/// Fetches the note at `iri`; it must identify itself by that IRI.
+fn fetch_note(ctx: Context, iri: String) -> Option(InboundNote) {
+  let fetched = {
+    use res <- result.try(
+      http_client.signed_get(ctx, iri) |> result.replace_error(Nil),
+    )
+    case res.status {
+      200 -> {
+        use data <- result.try(
+          json.parse(res.body, decode.dynamic) |> result.replace_error(Nil),
+        )
+        note.decode(data) |> result.replace_error(Nil)
+      }
+      _ -> Error(Nil)
+    }
+  }
+  case fetched {
+    Ok(n) if n.uri == iri -> Some(n)
+    _ -> None
+  }
+}
+
+fn handle_create(
+  ctx: Context,
+  conn: sqlight.Connection,
+  signer: RemoteActor,
+  inbound: Option(InboundNote),
+) -> Result(Nil, sqlight.Error) {
+  case inbound {
+    Some(n) if n.attributed_to == signer.uri ->
+      case same_host(n.uri, signer.uri) {
+        False -> Ok(Nil)
+        True -> {
+          use state <- result.try(follows.is_following(conn, signer.id))
+          case state {
+            Some(follows.Accepted) ->
+              statuses.insert_remote(
+                conn,
+                signer.id,
+                n,
+                note.visibility(n, signer.followers_uri),
+                ctx.now(),
+              )
+            _ -> Ok(Nil)
+          }
+        }
+      }
+    _ -> Ok(Nil)
+  }
+}
+
+/// A note must live on its author's host, or anyone could squat on URIs.
+fn same_host(a: String, b: String) -> Bool {
+  case uri.parse(a), uri.parse(b) {
+    Ok(a), Ok(b) -> a.host == b.host && option.is_some(a.host)
+    _, _ -> False
+  }
+}
+
+/// `Delete` of the signer itself removes the actor and everything cascading
+/// from it; otherwise of one of the signer's own notes.
+fn handle_delete(
+  conn: sqlight.Connection,
+  signer: RemoteActor,
+  body: String,
+) -> Result(Nil, sqlight.Error) {
+  case json.parse(body, decode.at(["object"], ap_decode.iri())) {
+    Error(_) -> Ok(Nil)
+    Ok(iri) ->
+      case iri == signer.uri {
+        True -> remote_actors.delete(conn, signer.id)
+        False -> statuses.delete_remote(conn, iri, signer.id)
+      }
+  }
 }

@@ -4,6 +4,8 @@ import gleam/http/request
 import gleam/http/response
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import gleam/time/timestamp
 import ochoko/context.{type Context, Context}
@@ -11,7 +13,9 @@ import ochoko/db
 import ochoko/federation/inbox
 import ochoko/federation/remote_actor
 import ochoko/store/follows
+import ochoko/store/statuses
 import ochoko/web/router
+import ochoko_shared/mastodon
 import sqlight
 import support
 import wisp
@@ -412,4 +416,259 @@ pub fn shared_inbox_route_test() {
   assert status(res) == 401
   let res = router.handle_request(simulate.request(http.Post, "/me/inbox"), ctx)
   assert status(res) == 401
+}
+
+// --- notes and deletes ---------------------------------------------------------
+
+const public = "https://www.w3.org/ns/activitystreams#Public"
+
+fn note_json(
+  id: String,
+  attributed_to: String,
+  to: List(String),
+  published: String,
+) -> json.Json {
+  json.object([
+    #("id", json.string(id)),
+    #("type", json.string("Note")),
+    #("attributedTo", json.string(attributed_to)),
+    #("content", json.string("<p>hello</p>")),
+    #("published", json.string(published)),
+    #("to", json.array(to, json.string)),
+    #("cc", json.array([], json.string)),
+    #("attachment", json.array([], json.string)),
+  ])
+}
+
+fn note_a(id: String) -> json.Json {
+  note_json(id, actor_a, [public], "2023-11-14T00:00:00Z")
+}
+
+fn create(id: String, actor: String, object: json.Json) -> String {
+  activity(id, "Create", actor, object)
+}
+
+fn follow_accepted(path: String, ctx: Context, actor: String) -> Int {
+  let id = actor_row_id(ctx, actor)
+  let assert Ok(Nil) =
+    db.with_connection(path, fn(conn) {
+      use _ <- result.try(follows.add_following(
+        conn,
+        id,
+        "https://ochoko.ynkt.me/activities/9",
+        ctx.now(),
+      ))
+      follows.set_following_accepted(conn, id)
+    })
+  id
+}
+
+fn get_status(path: String, uri: String) {
+  let assert Ok(row) = db.with_connection(path, statuses.get_by_uri(_, uri))
+  row
+}
+
+const n1 = "https://r.example/users/a/statuses/1"
+
+pub fn create_from_followed_stored_test() {
+  let #(path, ctx) = setup()
+  let id = follow_accepted(path, ctx, actor_a)
+  let body = create("https://r.example/c/1", actor_a, note_a(n1))
+  assert status(post(ctx, actor_a, body)) == 202
+  let assert Some(row) = get_status(path, n1)
+  assert row.actor_id == Some(id)
+  assert row.content_html == "<p>hello</p>"
+  assert row.visibility == mastodon.Public
+}
+
+pub fn create_from_unfollowed_ignored_test() {
+  let #(path, ctx) = setup()
+  let body = create("https://r.example/c/1", actor_a, note_a(n1))
+  assert status(post(ctx, actor_a, body)) == 202
+  assert get_status(path, n1) == None
+}
+
+pub fn create_with_pending_follow_ignored_test() {
+  let #(path, ctx) = setup()
+  let id = actor_row_id(ctx, actor_a)
+  let assert Ok(Nil) =
+    db.with_connection(path, follows.add_following(
+      _,
+      id,
+      "https://ochoko.ynkt.me/activities/9",
+      ctx.now(),
+    ))
+  let body = create("https://r.example/c/1", actor_a, note_a(n1))
+  assert status(post(ctx, actor_a, body)) == 202
+  assert get_status(path, n1) == None
+}
+
+pub fn create_attributed_to_other_ignored_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let body =
+    create(
+      "https://r.example/c/1",
+      actor_a,
+      note_json(n1, actor_b, [public], "2023-11-14T00:00:00Z"),
+    )
+  assert status(post(ctx, actor_a, body)) == 202
+  assert get_status(path, n1) == None
+}
+
+pub fn create_with_iri_object_fetches_note_test() {
+  let #(path, ctx) = setup()
+  let #(send, requests) =
+    support.recording_send(
+      support.fake_send([
+        #(n1, support.json_response(json.to_string(note_a(n1)))),
+        ..routes()
+      ]),
+    )
+  let ctx = Context(..ctx, send:)
+  let _ = follow_accepted(path, ctx, actor_a)
+  let body = create("https://r.example/c/1", actor_a, json.string(n1))
+  assert status(post(ctx, actor_a, body)) == 202
+  assert option.is_some(get_status(path, n1))
+  assert list.any(requests(), fn(r) { r.path == "/users/a/statuses/1" })
+}
+
+pub fn create_with_iri_object_from_unfollowed_not_fetched_test() {
+  let #(path, ctx) = setup()
+  let #(send, requests) =
+    support.recording_send(
+      support.fake_send([
+        #(n1, support.json_response(json.to_string(note_a(n1)))),
+        ..routes()
+      ]),
+    )
+  let ctx = Context(..ctx, send:)
+  let body = create("https://r.example/c/1", actor_a, json.string(n1))
+  assert status(post(ctx, actor_a, body)) == 202
+  assert get_status(path, n1) == None
+  assert !list.any(requests(), fn(r) { r.path == "/users/a/statuses/1" })
+}
+
+pub fn create_with_iri_object_of_other_id_ignored_test() {
+  let #(path, ctx) = setup()
+  let other = "https://r.example/users/a/statuses/2"
+  let ctx =
+    Context(
+      ..ctx,
+      send: support.fake_send([
+        #(n1, support.json_response(json.to_string(note_a(other)))),
+        ..routes()
+      ]),
+    )
+  let _ = follow_accepted(path, ctx, actor_a)
+  let body = create("https://r.example/c/1", actor_a, json.string(n1))
+  assert status(post(ctx, actor_a, body)) == 202
+  assert get_status(path, n1) == None
+  assert get_status(path, other) == None
+}
+
+pub fn duplicate_note_stored_once_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  assert status(post(
+      ctx,
+      actor_a,
+      create("https://r.example/c/1", actor_a, note_a(n1)),
+    ))
+    == 202
+  assert status(post(
+      ctx,
+      actor_a,
+      create("https://r.example/c/2", actor_a, note_a(n1)),
+    ))
+    == 202
+  assert count(path, "SELECT COUNT(*) FROM statuses") == 1
+}
+
+pub fn direct_note_stored_with_direct_visibility_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let body =
+    create(
+      "https://r.example/c/1",
+      actor_a,
+      note_json(n1, actor_a, [us], "2023-11-14T00:00:00Z"),
+    )
+  assert status(post(ctx, actor_a, body)) == 202
+  let assert Some(row) = get_status(path, n1)
+  assert row.visibility == mastodon.Direct
+}
+
+pub fn future_published_is_clamped_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let body =
+    create(
+      "https://r.example/c/1",
+      actor_a,
+      note_json(n1, actor_a, [public], "2099-01-01T00:00:00Z"),
+    )
+  assert status(post(ctx, actor_a, body)) == 202
+  let assert Some(row) = get_status(path, n1)
+  assert row.published_at == ctx.now()
+}
+
+pub fn delete_note_removes_status_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let _ =
+    post(ctx, actor_a, create("https://r.example/c/1", actor_a, note_a(n1)))
+  let delete =
+    activity("https://r.example/d/1", "Delete", actor_a, json.string(n1))
+  assert status(post(ctx, actor_a, delete)) == 202
+  assert get_status(path, n1) == None
+}
+
+pub fn delete_note_with_tombstone_removes_status_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let _ =
+    post(ctx, actor_a, create("https://r.example/c/1", actor_a, note_a(n1)))
+  let tombstone =
+    json.object([
+      #("id", json.string(n1)),
+      #("type", json.string("Tombstone")),
+    ])
+  let delete = activity("https://r.example/d/1", "Delete", actor_a, tombstone)
+  assert status(post(ctx, actor_a, delete)) == 202
+  assert get_status(path, n1) == None
+}
+
+pub fn delete_note_of_other_actor_ignored_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let _ =
+    post(ctx, actor_a, create("https://r.example/c/1", actor_a, note_a(n1)))
+  let delete =
+    activity("https://r.example/d/1", "Delete", actor_b, json.string(n1))
+  assert status(post(ctx, actor_b, delete)) == 202
+  assert option.is_some(get_status(path, n1))
+}
+
+pub fn delete_actor_cascades_test() {
+  let #(path, ctx) = setup()
+  let _ = follow_accepted(path, ctx, actor_a)
+  let _ =
+    post(ctx, actor_a, create("https://r.example/c/1", actor_a, note_a(n1)))
+  let _ = post(ctx, actor_a, follow("https://r.example/f/1", actor_a))
+  assert count(path, "SELECT COUNT(*) FROM statuses") == 1
+  assert count(path, "SELECT COUNT(*) FROM followers") == 1
+  assert count(path, "SELECT COUNT(*) FROM notifications") == 1
+  let delete =
+    activity("https://r.example/d/1", "Delete", actor_a, json.string(actor_a))
+  assert status(post(ctx, actor_a, delete)) == 202
+  assert count(path, "SELECT COUNT(*) FROM statuses") == 0
+  assert count(path, "SELECT COUNT(*) FROM followers") == 0
+  assert count(path, "SELECT COUNT(*) FROM following") == 0
+  assert count(path, "SELECT COUNT(*) FROM notifications") == 0
+  assert count(
+      path,
+      "SELECT COUNT(*) FROM remote_actors WHERE uri = '" <> actor_a <> "'",
+    )
+    == 0
 }
