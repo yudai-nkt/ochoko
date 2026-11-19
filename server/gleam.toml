@@ -29,6 +29,7 @@ tom = ">= 2.1.0 and < 3.0.0"
 simplifile = ">= 2.7.0 and < 3.0.0"
 argus = ">= 2.0.0 and < 3.0.0"
 ochoko_shared = { path = "../shared" }
+argv = ">= 1.1.0 and < 2.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.11.0 and < 2.0.0"
