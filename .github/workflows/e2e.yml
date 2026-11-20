@@ -1,0 +1,27 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  federation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Policies named here are trusted without `aqua policy allow`.
+      AQUA_POLICY_CONFIG: ${{ github.workspace }}/aqua-policy.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Provides mkcert for the e2e certificates.
+      - uses: aquaproj/aqua-installer@611554c6f0137ba41c8dd15aca8bee82504ea461 # v4.1.1
+        with:
+          aqua_version: v2.66.1
+      - name: Federation with Mastodon
+        run: e2e/run.sh

@@ -33,6 +33,7 @@ jobs:
         run: |
           gleam format --check shared
           gleam format --check server
+          gleam format --check e2e/runner
       - name: Test shared (Erlang)
         working-directory: shared
         run: gleam test

@@ -42,6 +42,17 @@ cd shared && gleam test && gleam test --target javascript
 
 The JavaScript test run uses Node.js, provided by aqua.
 
-CI (`.github/workflows/test.yml`) runs the same checks. Actions are pinned to
+### Federation e2e tests
+
+`e2e/run.sh` starts ochoko (`@yudai@ynkt.test`, served from
+`ochoko.ynkt.test`) and Mastodon (`@alice@mastodon.test`) in Docker behind a
+TLS proxy, then runs `e2e/runner`, a Gleam program that follows, posts,
+deletes and unfollows in both directions through each server's API. It needs
+Docker and mkcert (from aqua); the certificates come from a throwaway CA in
+`e2e/certs/` that is never added to the host trust store. `KEEP=1 e2e/run.sh`
+leaves the stack running for `docker compose -f e2e/compose.yaml logs`.
+
+CI (`.github/workflows/test.yml`, `.github/workflows/e2e.yml`) runs the same
+checks. Actions are pinned to
 commit SHAs with [pinact](https://github.com/suzuki-shunsuke/pinact); run
 `pinact run` after adding or bumping an action.

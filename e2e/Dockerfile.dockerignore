@@ -1,0 +1,13 @@
+*
+!shared/gleam.toml
+!shared/manifest.toml
+!shared/src
+!server/gleam.toml
+!server/manifest.toml
+!server/src
+!server/priv
+!e2e/ochoko/entrypoint.sh
+!e2e/runner/gleam.toml
+!e2e/runner/manifest.toml
+!e2e/runner/src
+!e2e/runner/entrypoint.sh

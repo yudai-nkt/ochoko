@@ -1,0 +1,11 @@
+# ochoko config for the e2e stack. Not secret: it only runs in Docker.
+account_domain = "ynkt.test"
+host = "ochoko.ynkt.test"
+handle = "yudai"
+listen_port = 8000
+listen_address = "0.0.0.0"
+database_path = "/data/ochoko.db"
+private_key_path = "/data/ochoko.pem"
+# Password: e2e-password
+password_hash = "$argon2id$v=13$m=19456,t=2,p=1$SMrIji2xOUAvVMKvVlAXPw$M3PpCTiUllr95KQfSXaHmyTtsUV/9ONc0GN8AzFR09Y"
+secret_key_base = "e2e-secret-key-base-0000000000000000000000000000000000000000000000"
