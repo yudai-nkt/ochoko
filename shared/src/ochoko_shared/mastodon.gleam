@@ -648,6 +648,8 @@ pub type InstanceV1 {
 pub fn instance_v1_to_json(i: InstanceV1) -> Json {
   json.object([
     #("uri", json.string(i.uri)),
+    // GoToSocial extension; Elk takes the handle's domain from it.
+    #("account_domain", json.string(i.uri)),
     #("title", json.string(i.title)),
     #("description", json.string(i.description)),
     #("short_description", json.string(i.short_description)),
@@ -709,6 +711,8 @@ pub type InstanceV2 {
 pub fn instance_v2_to_json(i: InstanceV2) -> Json {
   json.object([
     #("domain", json.string(i.domain)),
+    // GoToSocial extension; Elk takes the handle's domain from it.
+    #("account_domain", json.string(i.domain)),
     #("title", json.string(i.title)),
     #("version", json.string(i.version)),
     #("source_url", json.string(i.source_url)),

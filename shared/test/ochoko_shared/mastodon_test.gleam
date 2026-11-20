@@ -478,3 +478,54 @@ pub fn format_date_test() {
     == "2026-11-19"
   assert mastodon.format_date(timestamp.from_unix_seconds(0)) == "1970-01-01"
 }
+
+/// GoToSocial's `account_domain`: Elk prefers it over `domain`/`uri` for the
+/// handle and otherwise keeps the server host it logged in to.
+pub fn instance_v1_has_account_domain_test() {
+  let j =
+    mastodon.instance_v1_to_json(mastodon.InstanceV1(
+      uri: "ynkt.me",
+      title: "ochoko",
+      description: "",
+      short_description: "",
+      email: "",
+      version: "4.3.0",
+      languages: [],
+      registrations: False,
+      approval_required: False,
+      streaming_api: "",
+      user_count: 1,
+      status_count: 0,
+      domain_count: 0,
+      invites_enabled: False,
+      configuration: instance_configuration(),
+      contact_account: None,
+    ))
+  let assert Ok(d) =
+    json.parse(json.to_string(j), decode.at(["account_domain"], decode.string))
+  assert d == "ynkt.me"
+}
+
+pub fn instance_v2_has_account_domain_test() {
+  let j =
+    mastodon.instance_v2_to_json(mastodon.InstanceV2(
+      domain: "ynkt.me",
+      title: "ochoko",
+      version: "4.3.0",
+      source_url: "",
+      description: "",
+      languages: [],
+      configuration: instance_configuration(),
+      streaming_url: "",
+      registrations_enabled: False,
+      registrations_approval_required: True,
+      api_version: 2,
+      contact_email: "",
+      contact_account: account(),
+      active_month_users: 1,
+      thumbnail_url: "",
+    ))
+  let assert Ok(d) =
+    json.parse(json.to_string(j), decode.at(["account_domain"], decode.string))
+  assert d == "ynkt.me"
+}
