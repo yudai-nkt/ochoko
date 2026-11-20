@@ -41,3 +41,7 @@ cd shared && gleam test && gleam test --target javascript
 ```
 
 The JavaScript test run uses Node.js, provided by aqua.
+
+CI (`.github/workflows/test.yml`) runs the same checks. Actions are pinned to
+commit SHAs with [pinact](https://github.com/suzuki-shunsuke/pinact); run
+`pinact run` after adding or bumping an action.
