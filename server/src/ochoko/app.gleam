@@ -20,9 +20,6 @@ import sqlight
 import wisp
 import wisp/wisp_mist
 
-/// Interface the production server binds to; a reverse proxy fronts it.
-const production_interface = "127.0.0.1"
-
 /// Load the key, migrate the database, start the delivery worker and the HTTP
 /// server under a supervisor, then block until the supervisor dies. Only
 /// returns on an error: a startup failure, or the supervisor giving up
@@ -30,7 +27,7 @@ const production_interface = "127.0.0.1"
 /// so that systemd restarts the process.
 pub fn start(config: Config) -> Result(Nil, String) {
   wisp.configure_logger()
-  use _ <- result.try(start_link(config, production_interface))
+  use _ <- result.try(start_link(config, config.listen_address))
   let exit =
     process.new_selector()
     |> process.select_trapped_exits(fn(msg) { msg })

@@ -38,6 +38,7 @@ Copy `server/ochoko.example.toml` and edit it. Fields:
 | `host` | Host serving ActivityPub (`ochoko.ynkt.me`; actor id is `https://{host}/me`) |
 | `handle` | Local part of the handle (`yudai`) |
 | `listen_port` | Local TCP port (default 8000) |
+| `listen_address` | Interface to bind (optional, default `127.0.0.1`; use `0.0.0.0` when the proxy runs in another container) |
 | `database_path` | SQLite file |
 | `private_key_path` | PEM RSA key used to sign outgoing requests |
 | `password_hash` | Argon2id hash for the login password |

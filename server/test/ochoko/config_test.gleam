@@ -33,3 +33,18 @@ pub fn derived_urls_test() {
   assert config.key_id(c) == "https://ochoko.ynkt.me/me#main-key"
   assert config.acct(c) == "yudai@ynkt.me"
 }
+
+pub fn listen_address_defaults_to_loopback_test() {
+  let assert Ok(c) = config.parse(example)
+  assert c.listen_address == "127.0.0.1"
+}
+
+pub fn listen_address_test() {
+  let assert Ok(c) = config.parse(example <> "listen_address = \"0.0.0.0\"\n")
+  assert c.listen_address == "0.0.0.0"
+}
+
+pub fn listen_address_wrong_type_test() {
+  let assert Error(msg) = config.parse(example <> "listen_address = 1\n")
+  assert string.contains(msg, "listen_address")
+}

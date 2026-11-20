@@ -10,6 +10,9 @@ pub type Config {
     host: String,
     handle: String,
     listen_port: Int,
+    /// Interface to bind; defaults to loopback, where a reverse proxy on the
+    /// same machine fronts the server.
+    listen_address: String,
     database_path: String,
     private_key_path: String,
     password_hash: String,
@@ -26,6 +29,11 @@ pub fn parse(toml: String) -> Result(Config, String) {
   use host <- result.try(get_string(doc, "host"))
   use handle <- result.try(get_string(doc, "handle"))
   use listen_port <- result.try(get_int(doc, "listen_port"))
+  use listen_address <- result.try(get_optional_string(
+    doc,
+    "listen_address",
+    "127.0.0.1",
+  ))
   use database_path <- result.try(get_string(doc, "database_path"))
   use private_key_path <- result.try(get_string(doc, "private_key_path"))
   use password_hash <- result.try(get_string(doc, "password_hash"))
@@ -35,6 +43,7 @@ pub fn parse(toml: String) -> Result(Config, String) {
     host:,
     handle:,
     listen_port:,
+    listen_address:,
     database_path:,
     private_key_path:,
     password_hash:,
@@ -126,6 +135,17 @@ pub fn acct(c: Config) -> String {
 fn get_string(doc, key: String) -> Result(String, String) {
   tom.get_string(doc, [key])
   |> result.map_error(fn(e) { describe_get_error(key, e) })
+}
+
+fn get_optional_string(
+  doc,
+  key: String,
+  default: String,
+) -> Result(String, String) {
+  case tom.get_string(doc, [key]) {
+    Error(tom.NotFound(_)) -> Ok(default)
+    other -> other |> result.map_error(fn(e) { describe_get_error(key, e) })
+  }
 }
 
 fn get_int(doc, key: String) -> Result(Int, String) {

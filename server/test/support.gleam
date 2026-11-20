@@ -25,6 +25,7 @@ pub fn test_config() -> Config {
     host: "ochoko.ynkt.me",
     handle: "yudai",
     listen_port: 8000,
+    listen_address: "127.0.0.1",
     database_path: ":memory:",
     private_key_path: "key.pem",
     password_hash: "hash",
