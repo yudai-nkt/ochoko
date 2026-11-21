@@ -35,3 +35,17 @@ RUN gleam build
 COPY e2e/runner/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gleam", "run"]
+
+# The Elk browser tests. Keep the tag in sync with @playwright/test in
+# e2e/elk/package.json.
+FROM mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579 AS browser
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libnss3-tools \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /elk
+COPY e2e/elk/package.json e2e/elk/package-lock.json ./
+RUN npm ci
+COPY e2e/elk .
+COPY e2e/elk/entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["npx", "playwright", "test"]

@@ -1,8 +1,20 @@
 # Elk smoke test
 
 Manual end-to-end check of ochoko with the Elk web client against a deployed
-server (see `deployment.md`). It needs a public deployment, so **none of these
-steps has been run yet**. Fill in the results table as you go.
+server (see `deployment.md`). The manual run needs a public deployment, so
+**none of its steps has been run yet**. Fill in the results table as you go.
+
+## Automated in Docker
+
+The elk e2e suite (`e2e/run.sh elk`, see `e2e-tests.md`) runs this checklist
+against a self-hosted Elk, ochoko at `ochoko.ynkt.test` and Mastodon at
+`mastodon.test`. It covers items 1-9, 11 and 12 and reports item 10's 404s; it
+passes as of 2026-11-21. Findings, including the mist bug with raw `[` `]` in
+query strings that broke Elk's Follow button, are in `e2e-tests.md`. Run the
+manual checklist below once after the first deployment anyway: it exercises
+real DNS, public TLS and the hosted elk.zone.
+
+## Manual run
 
 Prerequisites: ochoko running at `https://ochoko.ynkt.me`, WebFinger for
 `acct:yudai@ynkt.me` served from `ynkt.me`, and a Mastodon account on another
@@ -44,7 +56,8 @@ server (the "remote account") for the steps that need one.
 
 | Method and path | Called by (Elk screen) | Decision (stub added / why not) |
 | --- | --- | --- |
-| | | |
+| `GET /api/v1/push/subscription` | login | keep 404; Elk treats it as "no subscription" (found by the elk e2e suite) |
+| `GET /nodeinfo/2.0` | login | keep 404 until NodeInfo exists (found by the elk e2e suite) |
 
 ## Finding 404'd endpoints in the server log
 

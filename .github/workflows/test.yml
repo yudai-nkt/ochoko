@@ -43,3 +43,8 @@ jobs:
       - name: Test server
         working-directory: server
         run: gleam test
+      - name: Typecheck the Elk e2e tests
+        working-directory: e2e/elk
+        run: |
+          npm ci
+          npx tsc --noEmit

@@ -24,3 +24,8 @@ mastodon.test {
 	import tls
 	reverse_proxy mastodon-web:3000
 }
+
+elk.test {
+	import tls
+	reverse_proxy elk:5314
+}

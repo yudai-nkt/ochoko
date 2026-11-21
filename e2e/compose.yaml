@@ -28,6 +28,7 @@ services:
           - ynkt.test
           - ochoko.ynkt.test
           - mastodon.test
+          - elk.test
 
   ochoko:
     build:
@@ -82,6 +83,35 @@ services:
       MASTODON_TOKEN: ${MASTODON_TOKEN:-}
     networks: [e2e]
     profiles: [runner]
+
+  elk:
+    image: ghcr.io/elk-zone/elk:v1.0.1@sha256:236faedcb68ac96dd2e8b25543f704d1cddf5c5b93b16722c74b2288882e46a3
+    environment:
+      # Elk's server registers the OAuth app and exchanges the code itself.
+      NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
+    volumes:
+      - ./certs:/certs:ro
+    # Registered OAuth apps; Elk runs as uid 911 and cannot write the
+    # image's root-owned volume.
+    tmpfs:
+      - /elk/data:uid=911,gid=911
+    networks: [e2e]
+    profiles: [elk]
+
+  browser:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+      target: browser
+    volumes:
+      - ./certs:/certs:ro
+      - ./elk/test-results:/elk/test-results
+    environment:
+      MASTODON_TOKEN: ${MASTODON_TOKEN:-}
+      NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
+      CI: ${CI:-}
+    networks: [e2e]
+    profiles: [elk]
 
 networks:
   e2e:

@@ -11,3 +11,7 @@
 !e2e/runner/manifest.toml
 !e2e/runner/src
 !e2e/runner/entrypoint.sh
+!e2e/elk
+e2e/elk/node_modules
+e2e/elk/test-results
+e2e/elk/playwright-report

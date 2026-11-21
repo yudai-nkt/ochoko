@@ -9,7 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  federation:
+  e2e:
+    name: ${{ matrix.suite }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [federation, elk]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -23,5 +28,12 @@ jobs:
       - uses: aquaproj/aqua-installer@611554c6f0137ba41c8dd15aca8bee82504ea461 # v4.1.1
         with:
           aqua_version: v2.66.1
-      - name: Federation with Mastodon
-        run: e2e/run.sh
+      - name: Run the ${{ matrix.suite }} suite
+        run: e2e/run.sh ${{ matrix.suite }}
+      - name: Upload Playwright results
+        if: failure() && matrix.suite == 'elk'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: elk-test-results
+          path: e2e/elk/test-results/
+          retention-days: 7

@@ -1,1 +1,4 @@
 certs/
+elk/node_modules/
+elk/test-results/
+elk/playwright-report/

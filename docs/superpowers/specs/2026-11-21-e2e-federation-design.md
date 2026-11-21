@@ -70,3 +70,16 @@ Scenario, in order:
   Mastodon, runs the driver, dumps logs on failure, and tears down.
 - A separate GitHub Actions workflow runs it; actions are pinned with pinact,
   images by digest.
+
+## Elk suite (added 2026-11-21)
+
+Elk v1.0.1 runs in the same stack at `elk.test`, and Playwright (TypeScript,
+in the official Playwright image) drives it through `docs/elk-smoke-test.md`:
+sign in through ochoko's OAuth page, handle display, home, notifications and
+profile, search and follow, follow notification, public and unlisted posts
+reaching Mastodon, timeline after reload, and delete. Mastodon is checked
+through its API. TypeScript is used only here because Playwright has no Gleam
+binding. Chromium trusts the CA through its NSS database rather than
+`ignoreHTTPSErrors`, so TLS is verified as in production. Requests to ochoko
+that answer 404 are reported; 5xx fail the run. `run.sh` takes the suite name
+and CI runs both suites as a matrix.
