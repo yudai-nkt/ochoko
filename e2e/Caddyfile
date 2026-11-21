@@ -1,0 +1,31 @@
+{
+	auto_https disable_certs
+	admin off
+}
+
+(tls) {
+	tls /certs/cert.pem /certs/key.pem
+}
+
+# Account domain: only WebFinger, redirected to the server host as
+# docs/deployment.md describes for ynkt.me.
+ynkt.test {
+	import tls
+	redir /.well-known/webfinger https://ochoko.ynkt.test{uri} 301
+	respond 404
+}
+
+ochoko.ynkt.test {
+	import tls
+	reverse_proxy ochoko:8000
+}
+
+mastodon.test {
+	import tls
+	reverse_proxy mastodon-web:3000
+}
+
+elk.test {
+	import tls
+	reverse_proxy elk:5314
+}

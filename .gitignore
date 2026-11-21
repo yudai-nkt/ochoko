@@ -1,0 +1,7 @@
+build/
+*.db
+*.db-*
+.superpowers/
+# aqua
+.aqua/
+aqua-checksums.json.tmp

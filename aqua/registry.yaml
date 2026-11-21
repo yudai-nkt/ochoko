@@ -1,0 +1,34 @@
+---
+packages:
+  - type: github_release
+    repo_owner: erlang
+    repo_name: rebar3
+    description: Erlang build tool that makes it easy to compile and test Erlang applications and releases
+    asset: rebar3
+    format: raw
+    files:
+      - name: rebar3
+  - type: github_release
+    repo_owner: erlef
+    repo_name: otp_builds
+    description: Precompiled Erlang/OTP builds
+    asset: otp-{{.Arch}}-apple-darwin.tar.gz
+    format: tar.gz
+    supported_envs:
+      - darwin
+    replacements:
+      amd64: x86_64
+      arm64: aarch64
+    files:
+      - name: erl
+        src: bin/erl
+      - name: erlc
+        src: bin/erlc
+      - name: escript
+        src: bin/escript
+      - name: ct_run
+        src: bin/ct_run
+      - name: dialyzer
+        src: bin/dialyzer
+      - name: typer
+        src: bin/typer

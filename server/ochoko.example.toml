@@ -1,0 +1,18 @@
+# Domain used in the account handle (acct: handle@account_domain).
+account_domain = "ynkt.me"
+# Host that serves ActivityPub endpoints (actor id is https://{host}/me).
+host = "ochoko.ynkt.me"
+# Local part of the account handle.
+handle = "yudai"
+# TCP port to listen on.
+listen_port = 8000
+# Interface to bind (optional, default "127.0.0.1").
+# listen_address = "127.0.0.1"
+# Path to the SQLite database file.
+database_path = "ochoko.db"
+# Path to the PEM-encoded RSA private key (generate with `ochoko keygen`).
+private_key_path = "ochoko.pem"
+# Password hash for the admin login (generate with `ochoko hash-password`).
+password_hash = "$argon2id$..."
+# Secret used to sign session cookies; use a long random string.
+secret_key_base = "change-me-to-a-long-random-string-of-at-least-64-characters-0000"

@@ -1,0 +1,50 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # Policies named here are trusted without `aqua policy allow`.
+      AQUA_POLICY_CONFIG: ${{ github.workspace }}/aqua-policy.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The aqua package for Erlang/OTP (erlef/otp_builds) ships macOS builds
+      # only, so CI takes OTP from setup-beam. Keep the version in sync with
+      # aqua.yaml.
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "28.5.0.8"
+          version-type: strict
+      - uses: aquaproj/aqua-installer@611554c6f0137ba41c8dd15aca8bee82504ea461 # v4.1.1
+        with:
+          aqua_version: v2.66.1
+      - name: Check formatting
+        run: |
+          gleam format --check shared
+          gleam format --check server
+          gleam format --check e2e/runner
+      - name: Test shared (Erlang)
+        working-directory: shared
+        run: gleam test
+      - name: Test shared (JavaScript)
+        working-directory: shared
+        run: gleam test --target javascript
+      - name: Test server
+        working-directory: server
+        run: gleam test
+      - name: Typecheck the Elk e2e tests
+        working-directory: e2e/elk
+        run: |
+          npm ci
+          npx tsc --noEmit

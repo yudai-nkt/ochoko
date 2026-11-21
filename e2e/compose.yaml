@@ -1,0 +1,121 @@
+# Federation e2e stack: ochoko and Mastodon behind one TLS proxy. Run it
+# through run.sh, which creates ./certs first.
+
+name: ochoko-e2e
+
+x-mastodon: &mastodon
+  image: ghcr.io/mastodon/mastodon:v4.7.6@sha256:8d46d6d8ac86f16f00a8944e3ba8cd8d1e3de23b33a59354c751e071b58e18a9
+  env_file: mastodon/mastodon.env
+  volumes:
+    - ./certs:/certs:ro
+    - ./mastodon/setup.sh:/setup.sh:ro
+  depends_on:
+    mastodon-db:
+      condition: service_healthy
+    mastodon-redis:
+      condition: service_healthy
+
+services:
+  proxy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+    networks:
+      e2e:
+        # Every public name resolves to the proxy inside the network.
+        aliases:
+          - ynkt.test
+          - ochoko.ynkt.test
+          - mastodon.test
+          - elk.test
+
+  ochoko:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+      target: ochoko
+    volumes:
+      - ./certs:/certs:ro
+      - ./ochoko/ochoko.toml:/etc/ochoko/ochoko.toml:ro
+    networks: [e2e]
+
+  mastodon-db:
+    image: postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 30
+    networks: [e2e]
+
+  mastodon-redis:
+    image: redis:8-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+    networks: [e2e]
+
+  mastodon-web:
+    <<: *mastodon
+    command: bundle exec puma -C config/puma.rb
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s --noproxy localhost localhost:3000/health | grep -q OK"]
+      interval: 3s
+      retries: 60
+    networks: [e2e]
+
+  mastodon-sidekiq:
+    <<: *mastodon
+    command: bundle exec sidekiq
+    networks: [e2e]
+
+  runner:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+      target: runner
+    volumes:
+      - ./certs:/certs:ro
+    environment:
+      MASTODON_TOKEN: ${MASTODON_TOKEN:-}
+    networks: [e2e]
+    profiles: [runner]
+
+  elk:
+    image: ghcr.io/elk-zone/elk:v1.0.1@sha256:236faedcb68ac96dd2e8b25543f704d1cddf5c5b93b16722c74b2288882e46a3
+    environment:
+      # Elk's server registers the OAuth app and exchanges the code itself.
+      NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
+    volumes:
+      - ./certs:/certs:ro
+    # Registered OAuth apps; Elk runs as uid 911 and cannot write the
+    # image's root-owned volume.
+    tmpfs:
+      - /elk/data:uid=911,gid=911
+    networks: [e2e]
+    profiles: [elk]
+
+  browser:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+      target: browser
+    volumes:
+      - ./certs:/certs:ro
+      - ./elk/test-results:/elk/test-results
+    environment:
+      MASTODON_TOKEN: ${MASTODON_TOKEN:-}
+      NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
+      CI: ${CI:-}
+    networks: [e2e]
+    profiles: [elk]
+
+networks:
+  e2e:
+    ipam:
+      config:
+        # Mastodon's ALLOWED_PRIVATE_ADDRESSES names this subnet.
+        - subnet: 172.30.0.0/24
