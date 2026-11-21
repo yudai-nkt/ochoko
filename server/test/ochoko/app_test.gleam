@@ -4,6 +4,7 @@ import gleam/int
 import gleam/otp/actor
 import gleam/otp/static_supervisor.{type Supervisor}
 import gleam/result
+import gleam/string
 import ochoko/app
 import ochoko/config.{type Config, Config}
 import ochoko/crypto/rsa
@@ -62,3 +63,26 @@ pub fn port_in_use_is_an_error_test() {
   assert msg != ""
   app.stop(started)
 }
+
+/// Elk (masto.js) sends `?id[]=...` with raw brackets, which RFC 3986
+/// reserves; the HTTP server must still answer (mist 6.0.3 on Hex closes the
+/// connection instead). See docs/e2e-tests.md.
+pub fn accepts_raw_brackets_in_query_test() {
+  let db_path = support.temp_db_path()
+  let key_path = db_path <> ".pem"
+  let assert Ok(Nil) =
+    simplifile.write(key_path, rsa.private_to_pem(support.test_key()))
+  let base =
+    Config(
+      ..support.test_config(),
+      database_path: db_path,
+      private_key_path: key_path,
+    )
+  let #(port, started) = start_on_free_port(base, 20)
+  let response = raw_get(port, "/health?id[]=1&id[]=2")
+  assert string.starts_with(response, "HTTP/1.1 200")
+  app.stop(started)
+}
+
+@external(erlang, "ochoko_raw_http_test_ffi", "raw_get")
+fn raw_get(port: Int, target: String) -> String

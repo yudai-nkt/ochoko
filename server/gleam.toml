@@ -23,7 +23,9 @@ gleam_json = ">= 3.1.0 and < 4.0.0"
 gleam_crypto = ">= 1.6.0 and < 2.0.0"
 gleam_time = ">= 1.11.0 and < 2.0.0"
 wisp = ">= 2.2.2 and < 3.0.0"
-mist = ">= 6.0.3 and < 7.0.0"
+# Fork of mist 6.0.3 that accepts raw [ ] in the query (Elk sends id[]=...);
+# back to Hex once released upstream. See docs/e2e-tests.md.
+mist = { git = "https://github.com/yudai-nkt/mist.git", ref = "e496881894b46e4cd43826edf9d15096819fc347" }
 sqlight = ">= 1.2.0 and < 2.0.0"
 tom = ">= 2.1.0 and < 3.0.0"
 simplifile = ">= 2.7.0 and < 3.0.0"
